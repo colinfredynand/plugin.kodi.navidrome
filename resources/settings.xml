@@ -1,0 +1,30 @@
+<settings>
+    <category label="Server">
+        <setting id="server_url" type="text" label="Server URL" default="http://localhost:4533" />
+        <setting id="username" type="text" label="Username" default="" />
+        <setting id="password" type="text" label="Password" option="hidden" default="" />
+    </category>
+    
+    <category label="Playback">
+        <setting id="enable_transcoding" type="bool" label="Enable Transcoding" default="false" />
+        <setting id="max_bitrate" type="enum" label="Max Bitrate" values="64|96|128|160|192|256|320" default="192" enable="eq(-1,true)" />
+        <setting id="transcode_format" type="enum" label="Transcode Format" values="mp3|opus|aac" default="mp3" enable="eq(-2,true)" />
+    </category>
+    
+    <category label="Scrobbling">
+        <setting id="enable_scrobbling" type="bool" label="Enable Scrobbling" default="true" />
+        <setting id="scrobble_threshold" type="slider" label="Scrobble After (%)" default="50" range="10,5,90" option="percent" enable="eq(-1,true)" />
+        <setting id="enable_now_playing" type="bool" label="Update Now Playing" default="true" />
+    </category>
+    
+    <category label="Display">
+        <setting id="items_per_page" type="enum" label="Items Per Page" values="50|100|200|500|1000" default="500" />
+        <setting id="show_track_numbers" type="bool" label="Show Track Numbers in Title" default="false" />
+    </category>
+    
+    <category label="Advanced">
+        <setting id="api_timeout" type="slider" label="API Timeout (seconds)" default="10" range="5,1,30" />
+        <setting id="enable_debug" type="bool" label="Enable Debug Logging" default="false" />
+        <setting id="use_native_api" type="bool" label="Use Native API (when available)" default="true" />
+    </category>
+</settings>

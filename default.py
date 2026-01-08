@@ -259,7 +259,7 @@ def list_album_tracks(album_id):
 
 
 def add_track_item(api, track):
-    """Helper function to add a track list item"""
+    """Helper function to add a track list item with proper codec info"""
     track_id = track.get('id')
     
     # Handle both native API and Subsonic API formats
@@ -273,10 +273,19 @@ def add_track_item(api, track):
     album_id = track.get('albumId')
     starred = track.get('starred') is not None
     
-    # For now, use direct HTTP URL (we'll switch to VFS later)
-    url = build_url({"action": "play_track", "id": track_id})
+    # Get audio format info
+    content_type = track.get('contentType', 'audio/flac')
+    suffix = track.get('suffix', 'flac').lower()
+    bit_rate = track.get('bitRate', 0)
+    sample_rate = track.get('samplingRate', 44100)
+    bit_depth = track.get('bitDepth', 16)
+    channels = track.get('channels', 2)
     
-    li = xbmcgui.ListItem(label=title)
+    # Get stream URL (no transcoding by default)
+    stream_url = api.get_stream_url(track_id)
+    
+    # Create list item with proper path
+    li = xbmcgui.ListItem(label=title, path=stream_url)
     
     # Set track info
     li.setInfo("music", {
@@ -289,16 +298,25 @@ def add_track_item(api, track):
         "mediatype": "song"
     })
     
+    # Set audio stream properties for better codec detection
+    li.addStreamInfo('audio', {
+        'codec': suffix,  # flac, mp3, etc.
+        'channels': channels,
+        'samplerate': sample_rate,
+        'bitspersample': bit_depth
+    })
+    
+    # Set MIME type
+    li.setMimeType(content_type)
+    li.setContentLookup(False)  # Don't try to lookup content, we know what it is
+    
     # Add cover art - handle both native and Subsonic API
     cover_art = None
     if track.get('coverArt'):
-        # Subsonic API format
         cover_art = track.get('coverArt')
     elif track.get('coverArtId'):
-        # Alternative Subsonic format
         cover_art = track.get('coverArtId')
     elif track.get('hasCoverArt') and track.get('albumId'):
-        # Native API format - use albumId for cover art
         cover_art = track.get('albumId')
     
     if cover_art:
@@ -347,7 +365,7 @@ def add_track_item(api, track):
     
     xbmcplugin.addDirectoryItem(
         handle=ADDON_HANDLE,
-        url=url,
+        url=stream_url,
         listitem=li,
         isFolder=False
     )

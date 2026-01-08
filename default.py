@@ -274,7 +274,7 @@ def add_track_item(api, track):
     starred = track.get('starred') is not None
     
     # For now, use direct HTTP URL (we'll switch to VFS later)
-    stream_url = api.get_stream_url(track_id)
+    url = build_url({"action": "play_track", "id": track_id})
     
     li = xbmcgui.ListItem(label=title)
     
@@ -347,7 +347,7 @@ def add_track_item(api, track):
     
     xbmcplugin.addDirectoryItem(
         handle=ADDON_HANDLE,
-        url=stream_url,
+        url=url,
         listitem=li,
         isFolder=False
     )
@@ -1015,6 +1015,30 @@ def list_genre_songs(genre_name):
     xbmcplugin.setContent(ADDON_HANDLE, 'songs')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
+def play_track(track_id):
+    """Resolve and play a track"""
+    api = get_api()
+    if not api:
+        xbmcplugin.setResolvedUrl(ADDON_HANDLE, False, xbmcgui.ListItem())
+        return
+    
+    try:
+        stream_url = api.get_stream_url(track_id)
+        
+        # Debug log
+        if ADDON.getSettingBool('enable_debug'):
+            xbmc.log(f"NAVIDROME: Resolving stream URL: {stream_url}", xbmc.LOGINFO)
+        
+        # Create playable item
+        play_item = xbmcgui.ListItem(path=stream_url)
+        
+        # Resolve URL
+        xbmcplugin.setResolvedUrl(ADDON_HANDLE, True, play_item)
+        
+    except Exception as e:
+        xbmc.log(f"NAVIDROME: Error resolving track: {str(e)}", xbmc.LOGERROR)
+        xbmcplugin.setResolvedUrl(ADDON_HANDLE, False, xbmcgui.ListItem())
+
 def router(paramstring):
     """Route to the appropriate function"""
     params = dict(urllib.parse.parse_qsl(paramstring))
@@ -1074,6 +1098,8 @@ def router(paramstring):
         list_albums_random(int(params.get("offset", 0)))
     elif action == "songs":
         list_songs(int(params.get("offset", 0)))
+    elif action == "play_track":
+        play_track(params.get("id"))
     else:
         xbmc.log(f"Unknown action: {action}", xbmc.LOGWARNING)
         root_menu()

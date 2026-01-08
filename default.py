@@ -352,51 +352,86 @@ def add_track_item(api, track):
         isFolder=False
     )
 
+def add_load_more_item(action, offset, **extra_params):
+    """Add a 'Load More' item for pagination"""
+    params = {"action": action, "offset": str(offset)}
+    params.update(extra_params)
 
-def list_albums_all():
-    """List all albums"""
+    url = build_url(params)
+    li = xbmcgui.ListItem(label="[Load More...]")
+    li.setInfo("music", {"title": "[Load More...]"})
+
+    xbmcplugin.addDirectoryItem(
+        handle=ADDON_HANDLE,
+        url=url,
+        listitem=li,
+        isFolder=True
+    )
+
+
+def list_albums_all(offset=0):
+    """List all albums with pagination"""
     api = get_api()
     if not api:
         return
     
-    albums = api.get_album_list('alphabeticalByName')
+    # Get items per page from settings
+    items_per_page_setting = int(ADDON.getSetting('items_per_page') or '2')
+    items_per_page_values = [50, 100, 200, 500, 1000]
+    items_per_page = items_per_page_values[items_per_page_setting]
+    
+    albums = api.get_album_list('alphabeticalByName', size=items_per_page, offset=offset)
     
     if not albums:
-        xbmcgui.Dialog().notification(
-            'Navidrome',
-            'No albums found',
-            xbmcgui.NOTIFICATION_INFO
-        )
+        if offset == 0:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'No albums found',
+                xbmcgui.NOTIFICATION_INFO
+            )
         xbmcplugin.endOfDirectory(ADDON_HANDLE)
         return
     
     for album in albums:
         add_album_item(api, album)
+    
+    # Add "Load More" if we got a full page
+    if len(albums) >= items_per_page:
+        add_load_more_item("albums_all", offset + items_per_page)
     
     xbmcplugin.addSortMethod(ADDON_HANDLE, xbmcplugin.SORT_METHOD_ALBUM)
     xbmcplugin.setContent(ADDON_HANDLE, 'albums')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
 
-def list_albums_random():
-    """List random albums"""
+def list_albums_random(offset=0):
+    """List random albums with pagination"""
     api = get_api()
     if not api:
         return
     
-    albums = api.get_album_list('random', size=50)
+    items_per_page_setting = int(ADDON.getSetting('items_per_page') or '2')
+    items_per_page_values = [50, 100, 200, 500, 1000]
+    items_per_page = items_per_page_values[items_per_page_setting]
+    
+    albums = api.get_album_list('random', size=items_per_page, offset=offset)
     
     if not albums:
-        xbmcgui.Dialog().notification(
-            'Navidrome',
-            'No albums found',
-            xbmcgui.NOTIFICATION_INFO
-        )
+        if offset == 0:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'No albums found',
+                xbmcgui.NOTIFICATION_INFO
+            )
         xbmcplugin.endOfDirectory(ADDON_HANDLE)
         return
     
     for album in albums:
         add_album_item(api, album)
+    
+    # Add "Load More" if we got a full page
+    if len(albums) >= items_per_page:
+        add_load_more_item("albums_random", offset + items_per_page)
     
     xbmcplugin.setContent(ADDON_HANDLE, 'albums')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
@@ -522,25 +557,34 @@ def list_albums_most_played():
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
 
-def list_songs():
-    """List all songs"""
+def list_songs(offset=0):
+    """List all songs with pagination"""
     api = get_api()
     if not api:
         return
 
-    songs = api.get_all_songs(size=500)
+    items_per_page_setting = int(ADDON.getSetting('items_per_page') or '2')
+    items_per_page_values = [50, 100, 200, 500, 1000]
+    items_per_page = items_per_page_values[items_per_page_setting]
+
+    songs = api.get_all_songs(size=items_per_page, offset=offset)
 
     if not songs:
-        xbmcgui.Dialog().notification(
-            'Navidrome',
-            'No songs found',
-            xbmcgui.NOTIFICATION_INFO
-        )
+        if offset == 0:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'No songs found',
+                xbmcgui.NOTIFICATION_INFO
+            )
         xbmcplugin.endOfDirectory(ADDON_HANDLE)
         return
 
     for track in songs:
         add_track_item(api, track)
+
+    # Add "Load More" if we got a full page
+    if len(songs) >= items_per_page:
+        add_load_more_item("songs", offset + items_per_page)
 
     xbmcplugin.addSortMethod(ADDON_HANDLE, xbmcplugin.SORT_METHOD_TITLE)
     xbmcplugin.addSortMethod(ADDON_HANDLE, xbmcplugin.SORT_METHOD_ARTIST)
@@ -1024,6 +1068,12 @@ def router(paramstring):
         list_genre_albums(params.get("name"))
     elif action == "genre_songs":
         list_genre_songs(params.get("name"))
+    elif action == "albums_all":
+        list_albums_all(int(params.get("offset", 0)))
+    elif action == "albums_random":
+        list_albums_random(int(params.get("offset", 0)))
+    elif action == "songs":
+        list_songs(int(params.get("offset", 0)))
     else:
         xbmc.log(f"Unknown action: {action}", xbmc.LOGWARNING)
         root_menu()

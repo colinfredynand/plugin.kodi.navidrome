@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<addon id="plugin.tapedeck.navidrome"
+<addon id="plugin.kodi.navidrome"
        name="Navidrome"
-       version="0.5.1"
-       provider-name="TapeDeck">
+       version="0.5.2"
+       provider-name="colinfredynand">
 
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>

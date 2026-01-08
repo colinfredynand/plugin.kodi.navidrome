@@ -1,0 +1,59 @@
+# Kodi Media Center language file
+msgid ""
+msgstr ""
+
+msgctxt "#32001"
+msgid "Server URL"
+msgstr ""
+
+msgctxt "#32002"
+msgid "Username"
+msgstr ""
+
+msgctxt "#32003"
+msgid "Password"
+msgstr ""
+
+msgctxt "#32004"
+msgid "Enable Transcoding"
+msgstr ""
+
+msgctxt "#32005"
+msgid "Max Bitrate"
+msgstr ""
+
+msgctxt "#32006"
+msgid "Transcode Format"
+msgstr ""
+
+msgctxt "#32007"
+msgid "Enable Scrobbling"
+msgstr ""
+
+msgctxt "#32008"
+msgid "Scrobble After (%)"
+msgstr ""
+
+msgctxt "#32009"
+msgid "Update Now Playing"
+msgstr ""
+
+msgctxt "#32010"
+msgid "Items Per Page"
+msgstr ""
+
+msgctxt "#32011"
+msgid "Show Track Numbers in Title"
+msgstr ""
+
+msgctxt "#32012"
+msgid "API Timeout (seconds)"
+msgstr ""
+
+msgctxt "#32013"
+msgid "Enable Debug Logging"
+msgstr ""
+
+msgctxt "#32014"
+msgid "Use Native API (when available)"
+msgstr ""

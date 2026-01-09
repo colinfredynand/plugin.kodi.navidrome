@@ -158,7 +158,7 @@ class NavidromeService:
     """Main service class"""
     
     def __init__(self):
-        self.addon = xbmcaddon.Addon('plugin.tapedeck.navidrome')
+        self.addon = xbmcaddon.Addon('plugin.kodi.navidrome')
         self.api = None
         self.monitor = NavidromeMonitor(self)
         self.player = NavidromePlayer(self)

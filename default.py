@@ -284,8 +284,8 @@ def add_track_item(api, track):
     # Get stream URL (no transcoding by default)
     stream_url = api.get_stream_url(track_id)
     
-    # Create list item with proper path
-    li = xbmcgui.ListItem(label=title, path=stream_url)
+    # Create list item - NO path parameter
+    li = xbmcgui.ListItem(label=title)
     
     # Set track info
     li.setInfo("music", {
@@ -300,15 +300,15 @@ def add_track_item(api, track):
     
     # Set audio stream properties for better codec detection
     li.addStreamInfo('audio', {
-        'codec': suffix,  # flac, mp3, etc.
+        'codec': suffix,
         'channels': channels,
         'samplerate': sample_rate,
         'bitspersample': bit_depth
     })
     
-    # Set MIME type
-    li.setMimeType(content_type)
-    li.setContentLookup(False)  # Don't try to lookup content, we know what it is
+    # Only set ContentLookup to False - this helps with buffering
+    # but still lets Kodi read the stream headers
+    li.setContentLookup(False)
     
     # Add cover art - handle both native and Subsonic API
     cover_art = None

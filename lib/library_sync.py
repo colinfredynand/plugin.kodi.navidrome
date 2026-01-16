@@ -259,15 +259,23 @@ class LibrarySync:
                     # Get or create artist
                     artist_kodi_id = self._get_or_create_artist(conn, artist_data)
 
-                    # Get albums for artist
-                    albums = self.api.get_artist_albums(artist_data['id'])
+                    # Get full artist details including albums
+                    artist_full = self.api.get_artist(artist_data['id'])
+                    if not artist_full:
+                        continue
+                    
+                    albums = artist_full.get('album', [])
 
                     for album_data in albums:
                         # Get or create album
                         album_kodi_id = self._get_or_create_album(conn, album_data, artist_kodi_id)
 
-                        # Get tracks for album
-                        tracks = self.api.get_album_tracks(album_data['id'])
+                        # Get full album details including tracks
+                        album_full = self.api.get_album(album_data['id'])
+                        if not album_full:
+                            continue
+                        
+                        tracks = album_full.get('song', [])
 
                         for track_data in tracks:
                             # Add track to database

@@ -230,7 +230,7 @@ class NavidromeService:
         try:
             from lib.library_sync import LibrarySync
             
-            sync = LibrarySync(self.api, self.addon)
+            sync = LibrarySync(self.api)
             
             # Use incremental sync for auto-sync (faster)
             success = sync.incremental_sync()
@@ -250,8 +250,9 @@ class NavidromeService:
         """Main service loop"""
         xbmc.log("NAVIDROME SERVICE: Running", xbmc.LOGINFO)
         
-        # Perform auto-sync on startup if enabled
-        self.auto_sync_library()
+        # Auto-sync disabled to prevent database locking issues
+        # Users should manually sync from the add-on menu
+        # self.auto_sync_library()
         
         # Check every 10 seconds for scrobble progress
         while not self.monitor.abortRequested():

@@ -1104,8 +1104,8 @@ def sync_full_library():
     progress.create('Navidrome', 'Starting full library sync...')
     
     try:
-        sync = LibrarySync(api, ADDON)
-        success = sync.full_sync(progress)
+        sync = LibrarySync(api)
+        success = sync.full_sync()
         
         if success:
             xbmcgui.Dialog().notification(
@@ -1114,9 +1114,13 @@ def sync_full_library():
                 xbmcgui.NOTIFICATION_INFO
             )
             
-            # Ask to update library
-            if dialog.yesno('Navidrome', 'Sync complete. Update Kodi music library now?'):
-                xbmc.executebuiltin('UpdateLibrary(music)')
+            # Don't ask to update library - synced items are already in database
+            # User can browse them directly through Kodi's Music Library
+            xbmcgui.Dialog().ok(
+                'Navidrome',
+                'Sync complete! Your music is now in Kodi\'s library.',
+                'Go to Music > Artists/Albums/Songs to browse.'
+            )
         else:
             xbmcgui.Dialog().notification(
                 'Navidrome',
@@ -1147,8 +1151,8 @@ def sync_incremental():
     progress.create('Navidrome', 'Starting incremental sync...')
     
     try:
-        sync = LibrarySync(api, ADDON)
-        success = sync.incremental_sync(progress)
+        sync = LibrarySync(api)
+        success = sync.incremental_sync()
         
         if success:
             xbmcgui.Dialog().notification(
@@ -1157,10 +1161,12 @@ def sync_incremental():
                 xbmcgui.NOTIFICATION_INFO
             )
             
-            # Ask to update library
-            dialog = xbmcgui.Dialog()
-            if dialog.yesno('Navidrome', 'Sync complete. Update Kodi music library now?'):
-                xbmc.executebuiltin('UpdateLibrary(music)')
+            # Don't ask to update library - synced items are already in database
+            xbmcgui.Dialog().ok(
+                'Navidrome',
+                'Sync complete! Your music is now in Kodi\'s library.',
+                'Go to Music > Artists/Albums/Songs to browse.'
+            )
         else:
             xbmcgui.Dialog().notification(
                 'Navidrome',
@@ -1196,8 +1202,8 @@ def sync_clear_library():
     progress.create('Navidrome', 'Clearing library...')
     
     try:
-        sync = LibrarySync(api, ADDON)
-        success = sync.clear_library(progress)
+        sync = LibrarySync(api)
+        success = sync.clear_library()
         
         if success:
             xbmcgui.Dialog().notification(
@@ -1206,9 +1212,12 @@ def sync_clear_library():
                 xbmcgui.NOTIFICATION_INFO
             )
             
-            # Ask to clean library
-            if dialog.yesno('Navidrome', 'Files cleared. Clean Kodi music library now?'):
-                xbmc.executebuiltin('CleanLibrary(music)')
+            # Don't ask to clean library - items are already removed from database
+            xbmcgui.Dialog().ok(
+                'Navidrome',
+                'Library cleared!',
+                'All Navidrome items have been removed from Kodi\'s database.'
+            )
         else:
             xbmcgui.Dialog().notification(
                 'Navidrome',

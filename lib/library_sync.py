@@ -276,13 +276,15 @@ class LibrarySync:
 
                 # Commit all changes
                 conn.commit()
-                xbmc.log(f"NAVIDROME SYNC: Full sync completed ({total_tracks} tracks)", xbmc.LOGINFO)
+                xbmc.log(f"NAVIDROME SYNC: Full sync completed successfully", xbmc.LOGINFO)
+                xbmc.log(f"NAVIDROME SYNC: Added {total_tracks} tracks to database", xbmc.LOGINFO)
 
                 # Update library timestamp
                 ADDON.setSetting('last_sync', str(int(time.time())))
 
-                # Trigger Kodi library update
-                xbmc.executebuiltin('UpdateLibrary(music)')
+                # DON'T trigger automatic library update - let user do it manually
+                # This prevents "checking media" issues
+                # xbmc.executebuiltin('UpdateLibrary(music)')
 
                 return True
 
@@ -352,8 +354,8 @@ class LibrarySync:
                 # Clear sync timestamp
                 ADDON.setSetting('last_sync', '')
 
-                # Trigger Kodi library clean
-                xbmc.executebuiltin('CleanLibrary(music)')
+                # DON'T trigger automatic library clean - let user do it manually
+                # xbmc.executebuiltin('CleanLibrary(music)')
 
                 return True
 

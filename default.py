@@ -50,7 +50,9 @@ def root_menu():
     for label, query in items:
         url = build_url(query)
         li = xbmcgui.ListItem(label=label)
-        li.setInfo("music", {"title": label})
+        # Use getMusicInfoTag() instead of setInfo()
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(label)
         xbmcplugin.addDirectoryItem(
             handle=ADDON_HANDLE,
             url=url,
@@ -76,7 +78,9 @@ def albums_menu():
     for label, query in items:
         url = build_url(query)
         li = xbmcgui.ListItem(label=label)
-        li.setInfo("music", {"title": label})
+        # Use getMusicInfoTag() instead of setInfo()
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(label)
         xbmcplugin.addDirectoryItem(
             handle=ADDON_HANDLE,
             url=url,
@@ -120,12 +124,11 @@ def list_artists():
         url = build_url({"action": "artist", "id": artist_id})
         li = xbmcgui.ListItem(label=name)
         
-        # Set artist info
-        li.setInfo("music", {
-            "title": name,
-            "artist": name,
-            "mediatype": "artist"
-        })
+        # Set artist info - use getMusicInfoTag()
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(name)
+        music_tag.setArtist(name)
+        music_tag.setMediaType('artist')
         
         # Add cover art if available
         cover_art = artist.get('coverArt')
@@ -184,14 +187,13 @@ def add_album_item(api, album):
     url = build_url({"action": "album", "id": album_id})
     li = xbmcgui.ListItem(label=title)
     
-    # Set album info
-    li.setInfo("music", {
-        "title": title,
-        "album": title,
-        "artist": artist_name,
-        "year": year,
-        "mediatype": "album"
-    })
+    # Set album info - use getMusicInfoTag()
+    music_tag = li.getMusicInfoTag()
+    music_tag.setTitle(title)
+    music_tag.setAlbum(title)
+    music_tag.setArtist(artist_name)
+    music_tag.setYear(year)
+    music_tag.setMediaType('album')
     
     # Add cover art
     cover_art = album.get('coverArt')
@@ -394,7 +396,8 @@ def add_load_more_item(action, offset, **extra_params):
 
     url = build_url(params)
     li = xbmcgui.ListItem(label="[Load More...]")
-    li.setInfo("music", {"title": "[Load More...]"})
+    music_tag = li.getMusicInfoTag()
+    music_tag.setTitle("[Load More...]")
 
     xbmcplugin.addDirectoryItem(
         handle=ADDON_HANDLE,
@@ -652,11 +655,14 @@ def list_radios():
         homepage = radio.get('homePageUrl', '')
         
         li = xbmcgui.ListItem(label=name)
-        li.setInfo("music", {
-            "title": name,
-            "comment": homepage,
-            "mediatype": "song"
-        })
+        li = xbmcgui.ListItem(label=name)
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(name)
+        music_tag.setComment(homepage)
+        music_tag.setMediaType('song')
+        
+        # Set MIME type for radio streams
+        li.setMimeType('audio/mpeg')  # Most radio streams are MP3
         
         # Mark as playable
         li.setProperty('IsPlayable', 'true')
@@ -731,10 +737,9 @@ def list_playlists():
         url = build_url({"action": "playlist", "id": playlist_id})
         li = xbmcgui.ListItem(label=f"{name} ({song_count} tracks)")
         
-        li.setInfo("music", {
-            "title": name,
-            "mediatype": "playlist"
-        })
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(name)
+        music_tag.setMediaType('playlist')
         
         # Add cover art if available
         cover_art = playlist.get('coverArt')
@@ -811,11 +816,10 @@ def search():
         url = build_url({"action": "artist", "id": artist_id})
         li = xbmcgui.ListItem(label=f"[Artist] {name}")
         
-        li.setInfo("music", {
-            "title": name,
-            "artist": name,
-            "mediatype": "artist"
-        })
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(name)
+        music_tag.setArtist(name)
+        music_tag.setMediaType('artist')
         
         cover_art = artist.get('coverArt')
         if cover_art:
@@ -965,10 +969,9 @@ def list_genres():
         url = build_url({"action": "genre", "name": genre_name})
         li = xbmcgui.ListItem(label=f"{genre_name} ({album_count} albums, {song_count} songs)")
         
-        li.setInfo("music", {
-            "title": genre_name,
-            "genre": genre_name
-        })
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(genre_name)
+        music_tag.setGenre(genre_name)
         
         xbmcplugin.addDirectoryItem(
             handle=ADDON_HANDLE,
@@ -992,7 +995,8 @@ def list_genre_content(genre_name):
     for label, query in items:
         url = build_url(query)
         li = xbmcgui.ListItem(label=label)
-        li.setInfo("music", {"title": label})
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(label)
         xbmcplugin.addDirectoryItem(
             handle=ADDON_HANDLE,
             url=url,

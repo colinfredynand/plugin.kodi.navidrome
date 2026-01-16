@@ -274,40 +274,57 @@ def add_track_item(api, track):
     starred = track.get('starred') is not None
     
     # Get audio format info
-    content_type = track.get('contentType', 'audio/flac')
     suffix = track.get('suffix', 'flac').lower()
     bit_rate = track.get('bitRate', 0)
     sample_rate = track.get('samplingRate', 44100)
     bit_depth = track.get('bitDepth', 16)
     channels = track.get('channels', 2)
     
-    # Get stream URL (no transcoding by default)
+    # Get stream URL
     stream_url = api.get_stream_url(track_id)
     
-    # Create list item - NO path parameter
+    # Create list item
     li = xbmcgui.ListItem(label=title)
     
-    # Set track info
-    li.setInfo("music", {
-        "title": title,
-        "artist": artist,
-        "album": album_name,
-        "duration": duration,
-        "tracknumber": track_number,
-        "year": year,
-        "mediatype": "song"
-    })
+    # Use modern getMusicInfoTag() instead of deprecated setInfo()
+    music_tag = li.getMusicInfoTag()
+    music_tag.setTitle(title)
+    music_tag.setArtist(artist)
+    music_tag.setAlbum(album_name)
+    music_tag.setDuration(duration)
+    music_tag.setTrack(track_number)
+    music_tag.setYear(year)
+    music_tag.setMediaType('song')
     
-    # Set audio stream properties for better codec detection
-    li.addStreamInfo('audio', {
-        'codec': suffix,
-        'channels': channels,
-        'samplerate': sample_rate,
-        'bitspersample': bit_depth
-    })
+    # Determine MIME type based on transcoding settings or original format
+    if api.enable_transcoding:
+        # Use transcoded format
+        mime_types = {
+            'mp3': 'audio/mpeg',
+            'opus': 'audio/ogg',
+            'aac': 'audio/aac'
+        }
+        mime_type = mime_types.get(api.transcode_format, 'audio/mpeg')
+    else:
+        # Use original format from track metadata
+        mime_types = {
+            'flac': 'audio/flac',
+            'mp3': 'audio/mpeg',
+            'opus': 'audio/ogg',
+            'ogg': 'audio/ogg',
+            'aac': 'audio/aac',
+            'm4a': 'audio/mp4',
+            'alac': 'audio/mp4',
+            'wav': 'audio/wav',
+            'wma': 'audio/x-ms-wma',
+            'ape': 'audio/x-monkeys-audio'
+        }
+        mime_type = mime_types.get(suffix, 'audio/flac')
     
-    # Only set ContentLookup to False - this helps with buffering
-    # but still lets Kodi read the stream headers
+    # Set MIME type to ensure PAPlayer is used
+    li.setMimeType(mime_type)
+    
+    # Set ContentLookup to False to help with buffering
     li.setContentLookup(False)
     
     # Add cover art - handle both native and Subsonic API

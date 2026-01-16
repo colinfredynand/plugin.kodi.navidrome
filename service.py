@@ -107,17 +107,23 @@ class NavidromePlayer(xbmc.Player):
         try:
             playing_file = self.getPlayingFile()
             
-            # Check if it's a Navidrome URL
-            if 'rest/stream' not in playing_file:
-                return None
-            
-            # Extract ID from URL parameter
-            import urllib.parse
-            parsed = urllib.parse.urlparse(playing_file)
-            params = urllib.parse.parse_qs(parsed.query)
-            
-            if 'id' in params:
-                return params['id'][0]
+            # Check if it's a Navidrome URL (either direct stream or plugin URL)
+            if 'rest/stream' in playing_file:
+                # Direct stream URL
+                import urllib.parse
+                parsed = urllib.parse.urlparse(playing_file)
+                params = urllib.parse.parse_qs(parsed.query)
+                
+                if 'id' in params:
+                    return params['id'][0]
+            elif 'plugin.kodi.navidrome' in playing_file and 'track_id=' in playing_file:
+                # Plugin URL from library sync
+                import urllib.parse
+                parsed = urllib.parse.urlparse(playing_file)
+                params = urllib.parse.parse_qs(parsed.query)
+                
+                if 'track_id' in params:
+                    return params['track_id'][0]
             
             return None
         except Exception as e:
@@ -217,6 +223,10 @@ class NavidromeService:
         
         xbmc.log("NAVIDROME SERVICE: Starting auto-sync", xbmc.LOGINFO)
         
+        # Wait a bit for Kodi to fully start
+        if self.monitor.waitForAbort(10):
+            return
+        
         try:
             from lib.library_sync import LibrarySync
             
@@ -228,9 +238,8 @@ class NavidromeService:
             if success:
                 xbmc.log("NAVIDROME SERVICE: Auto-sync completed successfully", xbmc.LOGINFO)
                 
-                # Auto-update library if enabled
-                if self.addon.getSettingBool('auto_update_library'):
-                    xbmc.executebuiltin('UpdateLibrary(music)')
+                # Auto-update library
+                xbmc.executebuiltin('UpdateLibrary(music)')
             else:
                 xbmc.log("NAVIDROME SERVICE: Auto-sync failed", xbmc.LOGWARNING)
                 

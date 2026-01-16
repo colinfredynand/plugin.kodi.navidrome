@@ -19,6 +19,7 @@ class LibrarySync:
         """
         self.api = api
         self.addon = addon
+        self._sync_lock = False
 
     def _get_db_path(self):
         """Get path to Kodi's music database"""
@@ -145,17 +146,18 @@ class LibrarySync:
         navidrome_id = song_data.get('id', '')
         song_title = song_data.get('title', '')
 
-        # Check if song already exists by filename (which includes Navidrome ID in path)
-        filename = os.path.basename(strm_file)
+        # Check if song already exists by Navidrome ID in comment
         cursor.execute("""
             SELECT idSong FROM song 
-            WHERE strFileName = ? AND idPath = ?
-        """, (filename, path_id))
+            WHERE idAlbum = ? AND comment LIKE ?
+        """, (album_kodi_id, f'%navidrome_id:{navidrome_id}%'))
         result = cursor.fetchone()
 
         if result:
             # Song already exists, skip
             return result[0]
+        
+        filename = os.path.basename(strm_file)
 
         # Extract year from song data
         year = song_data.get('year', 0)
@@ -166,8 +168,12 @@ class LibrarySync:
         track_num = song_data.get('track', 0)
         itrack = (disc_num << 16) | track_num
 
-        # Store Navidrome ID in strMusicBrainzTrackID field with prefix
-        mbid_field = f"navidrome:{navidrome_id}"
+        # Store Navidrome ID in comment field
+        comment = song_data.get('comment', '')
+        if comment:
+            comment += f"\n\nnavidrome_id:{navidrome_id}"
+        else:
+            comment = f"navidrome_id:{navidrome_id}"
 
         cursor.execute("""
             INSERT INTO song (
@@ -175,7 +181,7 @@ class LibrarySync:
                 strTitle, iTrack, iDuration, strReleaseDate, strOrigReleaseDate,
                 strFileName, strMusicBrainzTrackID, comment, dateAdded,
                 iBitRate, iSampleRate, iChannels
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, datetime('now'), ?, ?, ?)
         """, (
             album_kodi_id,
             path_id,
@@ -188,8 +194,7 @@ class LibrarySync:
             release_date,
             release_date,
             filename,
-            mbid_field,
-            song_data.get('comment', ''),
+            comment,
             song_data.get('bitRate', 0),
             song_data.get('sampleRate', 0),
             song_data.get('channels', 2)
@@ -227,6 +232,13 @@ class LibrarySync:
 
     def full_sync(self, progress_callback=None):
         """Perform full library sync"""
+        # Check if sync is already running
+        if self._sync_lock:
+            xbmc.log("NAVIDROME SYNC: Sync already in progress, skipping", xbmc.LOGWARNING)
+            return False
+
+        self._sync_lock = True
+
         try:
             xbmc.log("NAVIDROME SYNC: Starting full sync", xbmc.LOGINFO)
 
@@ -239,9 +251,9 @@ class LibrarySync:
             if not xbmcvfs.exists(library_path):
                 xbmcvfs.mkdirs(library_path)
 
-            # Connect to database
+            # Connect to database with timeout
             db_path = self._get_db_path()
-            conn = sqlite3.connect(db_path)
+            conn = sqlite3.connect(db_path, timeout=30.0)
 
             try:
                 # Get all artists
@@ -334,6 +346,8 @@ class LibrarySync:
             import traceback
             xbmc.log(traceback.format_exc(), xbmc.LOGERROR)
             return False
+        finally:
+            self._sync_lock = False
 
     def incremental_sync(self, progress_callback=None):
         """Perform incremental library sync (stub for now)"""

@@ -46,6 +46,10 @@ def root_menu():
         ("Playlists", {"action": "playlists"}),
         ("Search", {"action": "search"}),
     ]
+    
+    # Add Library Sync menu if enabled
+    if ADDON.getSettingBool('enable_library_sync'):
+        items.append(("Library Sync", {"action": "library_sync_menu"}))
 
     for label, query in items:
         url = build_url(query)
@@ -1058,6 +1062,170 @@ def list_genre_songs(genre_name):
     xbmcplugin.setContent(ADDON_HANDLE, 'songs')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
+
+def library_sync_menu():
+    """Library sync submenu"""
+    items = [
+        ("Full Sync", {"action": "sync_full"}),
+        ("Incremental Sync", {"action": "sync_incremental"}),
+        ("Clear Library", {"action": "sync_clear"}),
+    ]
+    
+    for label, query in items:
+        url = build_url(query)
+        li = xbmcgui.ListItem(label=label)
+        music_tag = li.getMusicInfoTag()
+        music_tag.setTitle(label)
+        xbmcplugin.addDirectoryItem(
+            handle=ADDON_HANDLE,
+            url=url,
+            listitem=li,
+            isFolder=False
+        )
+    
+    xbmcplugin.endOfDirectory(ADDON_HANDLE)
+
+
+def sync_full_library():
+    """Perform full library sync"""
+    from lib.library_sync import LibrarySync
+    
+    api = get_api()
+    if not api:
+        return
+    
+    # Confirm with user
+    dialog = xbmcgui.Dialog()
+    if not dialog.yesno('Navidrome', 'Start full library sync? This may take a while.'):
+        return
+    
+    # Show progress dialog
+    progress = xbmcgui.DialogProgress()
+    progress.create('Navidrome', 'Starting full library sync...')
+    
+    try:
+        sync = LibrarySync(api, ADDON)
+        success = sync.full_sync(progress)
+        
+        if success:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'Full sync completed successfully',
+                xbmcgui.NOTIFICATION_INFO
+            )
+            
+            # Ask to update library
+            if dialog.yesno('Navidrome', 'Sync complete. Update Kodi music library now?'):
+                xbmc.executebuiltin('UpdateLibrary(music)')
+        else:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'Full sync failed',
+                xbmcgui.NOTIFICATION_ERROR
+            )
+    except Exception as e:
+        xbmc.log(f"NAVIDROME: Error during full sync: {str(e)}", xbmc.LOGERROR)
+        xbmcgui.Dialog().notification(
+            'Navidrome',
+            f'Sync error: {str(e)}',
+            xbmcgui.NOTIFICATION_ERROR
+        )
+    finally:
+        progress.close()
+
+
+def sync_incremental():
+    """Perform incremental library sync"""
+    from lib.library_sync import LibrarySync
+    
+    api = get_api()
+    if not api:
+        return
+    
+    # Show progress dialog
+    progress = xbmcgui.DialogProgress()
+    progress.create('Navidrome', 'Starting incremental sync...')
+    
+    try:
+        sync = LibrarySync(api, ADDON)
+        success = sync.incremental_sync(progress)
+        
+        if success:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'Incremental sync completed',
+                xbmcgui.NOTIFICATION_INFO
+            )
+            
+            # Ask to update library
+            dialog = xbmcgui.Dialog()
+            if dialog.yesno('Navidrome', 'Sync complete. Update Kodi music library now?'):
+                xbmc.executebuiltin('UpdateLibrary(music)')
+        else:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'Incremental sync failed',
+                xbmcgui.NOTIFICATION_ERROR
+            )
+    except Exception as e:
+        xbmc.log(f"NAVIDROME: Error during incremental sync: {str(e)}", xbmc.LOGERROR)
+        xbmcgui.Dialog().notification(
+            'Navidrome',
+            f'Sync error: {str(e)}',
+            xbmcgui.NOTIFICATION_ERROR
+        )
+    finally:
+        progress.close()
+
+
+def sync_clear_library():
+    """Clear synced library"""
+    from lib.library_sync import LibrarySync
+    
+    api = get_api()
+    if not api:
+        return
+    
+    # Confirm with user
+    dialog = xbmcgui.Dialog()
+    if not dialog.yesno('Navidrome', 'Clear all synced files? This cannot be undone.'):
+        return
+    
+    # Show progress dialog
+    progress = xbmcgui.DialogProgress()
+    progress.create('Navidrome', 'Clearing library...')
+    
+    try:
+        sync = LibrarySync(api, ADDON)
+        success = sync.clear_library(progress)
+        
+        if success:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'Library cleared successfully',
+                xbmcgui.NOTIFICATION_INFO
+            )
+            
+            # Ask to clean library
+            if dialog.yesno('Navidrome', 'Files cleared. Clean Kodi music library now?'):
+                xbmc.executebuiltin('CleanLibrary(music)')
+        else:
+            xbmcgui.Dialog().notification(
+                'Navidrome',
+                'Failed to clear library',
+                xbmcgui.NOTIFICATION_ERROR
+            )
+    except Exception as e:
+        xbmc.log(f"NAVIDROME: Error clearing library: {str(e)}", xbmc.LOGERROR)
+        xbmcgui.Dialog().notification(
+            'Navidrome',
+            f'Clear error: {str(e)}',
+            xbmcgui.NOTIFICATION_ERROR
+        )
+    finally:
+        progress.close()
+
+
 def play_track(track_id):
     """Resolve and play a track"""
     api = get_api()
@@ -1092,9 +1260,9 @@ def router(paramstring):
     elif action == "albums_menu":
         albums_menu()
     elif action == "albums_all":
-        list_albums_all()
+        list_albums_all(int(params.get("offset", 0)))
     elif action == "albums_random":
-        list_albums_random()
+        list_albums_random(int(params.get("offset", 0)))
     elif action == "albums_favourites":
         list_albums_favourites()
     elif action == "albums_top_rated":
@@ -1112,7 +1280,7 @@ def router(paramstring):
     elif action == "album":
         list_album_tracks(params.get("id"))
     elif action == "songs":
-        list_songs()
+        list_songs(int(params.get("offset", 0)))
     elif action == "radios":
         list_radios()
     elif action == "playlists":
@@ -1135,12 +1303,14 @@ def router(paramstring):
         list_genre_albums(params.get("name"))
     elif action == "genre_songs":
         list_genre_songs(params.get("name"))
-    elif action == "albums_all":
-        list_albums_all(int(params.get("offset", 0)))
-    elif action == "albums_random":
-        list_albums_random(int(params.get("offset", 0)))
-    elif action == "songs":
-        list_songs(int(params.get("offset", 0)))
+    elif action == "library_sync_menu":
+        library_sync_menu()
+    elif action == "sync_full":
+        sync_full_library()
+    elif action == "sync_incremental":
+        sync_incremental()
+    elif action == "sync_clear":
+        sync_clear_library()
     elif action == "play_track":
         play_track(params.get("id"))
     else:

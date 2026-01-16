@@ -203,9 +203,46 @@ class NavidromeService:
         except Exception as e:
             xbmc.log(f"NAVIDROME SERVICE: Error scrobbling: {str(e)}", xbmc.LOGERROR)
     
+    def auto_sync_library(self):
+        """Perform automatic library sync if enabled"""
+        if not self.api:
+            return
+        
+        # Check if library sync and auto-sync are enabled
+        if not self.addon.getSettingBool('enable_library_sync'):
+            return
+        
+        if not self.addon.getSettingBool('auto_sync_on_startup'):
+            return
+        
+        xbmc.log("NAVIDROME SERVICE: Starting auto-sync", xbmc.LOGINFO)
+        
+        try:
+            from lib.library_sync import LibrarySync
+            
+            sync = LibrarySync(self.api, self.addon)
+            
+            # Use incremental sync for auto-sync (faster)
+            success = sync.incremental_sync()
+            
+            if success:
+                xbmc.log("NAVIDROME SERVICE: Auto-sync completed successfully", xbmc.LOGINFO)
+                
+                # Auto-update library if enabled
+                if self.addon.getSettingBool('auto_update_library'):
+                    xbmc.executebuiltin('UpdateLibrary(music)')
+            else:
+                xbmc.log("NAVIDROME SERVICE: Auto-sync failed", xbmc.LOGWARNING)
+                
+        except Exception as e:
+            xbmc.log(f"NAVIDROME SERVICE: Error during auto-sync: {str(e)}", xbmc.LOGERROR)
+    
     def run(self):
         """Main service loop"""
         xbmc.log("NAVIDROME SERVICE: Running", xbmc.LOGINFO)
+        
+        # Perform auto-sync on startup if enabled
+        self.auto_sync_library()
         
         # Check every 10 seconds for scrobble progress
         while not self.monitor.abortRequested():

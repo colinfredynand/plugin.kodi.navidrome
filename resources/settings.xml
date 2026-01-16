@@ -5,6 +5,17 @@
         <setting id="password" type="text" label="Password" option="hidden" default="" />
     </category>
     
+    <category label="Library Sync">
+        <setting id="enable_library_sync" type="bool" label="Enable Library Sync" default="false" />
+        <setting id="library_path" type="folder" label="Library Path" default="" enable="eq(-1,true)" />
+        <setting id="auto_sync" type="bool" label="Auto Sync on Startup" default="false" enable="eq(-2,true)" />
+        <setting id="sync_interval" type="enum" label="Auto Sync Interval" values="Never|15 minutes|30 minutes|1 hour|6 hours|12 hours|24 hours" default="Never" enable="eq(-3,true)" />
+        <setting id="sync_cover_art" type="bool" label="Download Cover Art" default="true" enable="eq(-4,true)" />
+        <setting type="sep" />
+        <setting label="Library sync integrates your Navidrome music into Kodi's native library" type="lsep" />
+        <setting label="After enabling, use 'Sync Library' from the addon menu" type="lsep" />
+    </category>
+    
     <category label="Playback">
         <setting id="enable_transcoding" type="bool" label="Enable Transcoding" default="false" />
         <setting id="max_bitrate" type="enum" label="Max Bitrate" values="64|96|128|160|192|256|320" default="192" enable="eq(-1,true)" />

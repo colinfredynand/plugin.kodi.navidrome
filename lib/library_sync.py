@@ -9,21 +9,16 @@ from lib.navidrome_api import NavidromeAPI
 class LibrarySync:
     """Handles syncing Navidrome library to Kodi's music database"""
     
-    def __init__(self):
-        self.addon = xbmcaddon.Addon('plugin.kodi.navidrome')
-        self.api = None
-        self._init_api()
+    def __init__(self, api, addon):
+        """
+        Initialize LibrarySync
         
-    def _init_api(self):
-        """Initialize API connection"""
-        server_url = self.addon.getSetting('server_url')
-        username = self.addon.getSetting('username')
-        password = self.addon.getSetting('password')
-        
-        if server_url and username and password:
-            self.api = NavidromeAPI(server_url, username, password)
-        else:
-            raise Exception("Server credentials not configured")
+        Args:
+            api: NavidromeAPI instance
+            addon: xbmcaddon.Addon instance
+        """
+        self.api = api
+        self.addon = addon
     
     def _get_db_path(self):
         """Get path to Kodi's music database"""
@@ -223,7 +218,14 @@ class LibrarySync:
                 
                 for artist_data in artists:
                     if progress_callback:
-                        progress_callback(processed, total_items, f"Syncing {artist_data.get('name', 'Unknown')}")
+                        if hasattr(progress_callback, 'iscanceled') and progress_callback.iscanceled():
+                            xbmc.log("NAVIDROME SYNC: Sync cancelled by user", xbmc.LOGINFO)
+                            return False
+                        
+                        progress_callback.update(
+                            int((processed / total_items) * 100),
+                            f"Syncing {artist_data.get('name', 'Unknown')}"
+                        )
                     
                     # Create artist folder
                     artist_name = self._sanitize_filename(artist_data.get('name', 'Unknown'))
@@ -272,18 +274,59 @@ class LibrarySync:
                 
                 conn.commit()
                 xbmc.log("NAVIDROME SYNC: Full sync completed successfully", xbmc.LOGINFO)
+                return True
                 
             finally:
                 conn.close()
-            
-            # Trigger Kodi library scan
-            xbmc.executebuiltin('UpdateLibrary(music)')
             
         except Exception as e:
             xbmc.log(f"NAVIDROME SYNC: Error during sync: {str(e)}", xbmc.LOGERROR)
             import traceback
             xbmc.log(traceback.format_exc(), xbmc.LOGERROR)
-            raise
+            return False
+    
+    def incremental_sync(self, progress_callback=None):
+        """Perform incremental library sync (stub for now)"""
+        xbmc.log("NAVIDROME SYNC: Incremental sync not yet implemented, performing full sync", xbmc.LOGINFO)
+        return self.full_sync(progress_callback)
+    
+    def clear_library(self, progress_callback=None):
+        """Clear synced library files"""
+        try:
+            library_path = self.addon.getSetting('library_path')
+            if not library_path or not xbmcvfs.exists(library_path):
+                return True
+            
+            if progress_callback:
+                progress_callback.update(0, "Clearing library files...")
+            
+            # Remove all files and folders
+            dirs, files = xbmcvfs.listdir(library_path)
+            
+            for file in files:
+                xbmcvfs.delete(os.path.join(library_path, file))
+            
+            for dir in dirs:
+                self._remove_dir_recursive(os.path.join(library_path, dir))
+            
+            xbmc.log("NAVIDROME SYNC: Library cleared successfully", xbmc.LOGINFO)
+            return True
+            
+        except Exception as e:
+            xbmc.log(f"NAVIDROME SYNC: Error clearing library: {str(e)}", xbmc.LOGERROR)
+            return False
+    
+    def _remove_dir_recursive(self, path):
+        """Recursively remove directory"""
+        dirs, files = xbmcvfs.listdir(path)
+        
+        for file in files:
+            xbmcvfs.delete(os.path.join(path, file))
+        
+        for dir in dirs:
+            self._remove_dir_recursive(os.path.join(path, dir))
+        
+        xbmcvfs.rmdir(path)
     
     def _sanitize_filename(self, filename):
         """Sanitize filename for filesystem"""

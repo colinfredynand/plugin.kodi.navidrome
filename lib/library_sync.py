@@ -1,401 +1,369 @@
-import os
+# ============================================================================
+# lib/library_sync.py - Direct database sync like Jellyfin (NO PATH NEEDED)
+# ============================================================================
+
 import sqlite3
+import time
 import xbmc
 import xbmcaddon
 import xbmcvfs
-from lib.navidrome_api import NavidromeAPI
+import os
 
+ADDON = xbmcaddon.Addon()
+ADDON_ID = ADDON.getAddonInfo('id')
 
 class LibrarySync:
-    """Handles syncing Navidrome library to Kodi's music database"""
-
-    def __init__(self, api, addon):
-        """
-        Initialize LibrarySync
-
-        Args:
-            api: NavidromeAPI instance
-            addon: xbmcaddon.Addon instance
-        """
+    def __init__(self, api):
         self.api = api
-        self.addon = addon
-        self._sync_lock = False
+        self.lock_file = os.path.join(xbmcvfs.translatePath('special://temp/'), 
+                                      f'{ADDON_ID}.sync.lock')
 
-    def _get_db_path(self):
+    def _acquire_lock(self):
+        """Acquire sync lock"""
+        if xbmcvfs.exists(self.lock_file):
+            stat = xbmcvfs.Stat(self.lock_file)
+            lock_age = time.time() - stat.st_mtime()
+            if lock_age < 3600:  # 1 hour
+                xbmc.log("NAVIDROME SYNC: Another sync is running", xbmc.LOGWARNING)
+                return False
+            xbmcvfs.delete(self.lock_file)
+
+        lock = xbmcvfs.File(self.lock_file, 'w')
+        lock.write(str(time.time()))
+        lock.close()
+        return True
+
+    def _release_lock(self):
+        """Release sync lock"""
+        if xbmcvfs.exists(self.lock_file):
+            xbmcvfs.delete(self.lock_file)
+
+    def _get_kodi_db_path(self):
         """Get path to Kodi's music database"""
-        userdata_path = xbmcvfs.translatePath('special://userdata')
-        db_path = os.path.join(userdata_path, 'Database', 'MyMusic83.db')
+        db_dir = xbmcvfs.translatePath('special://database/')
+        db_files = [f for f in os.listdir(db_dir) if f.startswith('MyMusic') and f.endswith('.db')]
 
-        if not os.path.exists(db_path):
-            # Try MyMusic82 for Kodi 20
-            db_path = os.path.join(userdata_path, 'Database', 'MyMusic82.db')
+        if not db_files:
+            raise Exception("Could not find Kodi music database")
 
-        if not os.path.exists(db_path):
-            raise Exception(f"Music database not found at {db_path}")
+        db_files.sort(reverse=True)
+        latest_db = os.path.join(db_dir, db_files[0])
 
-        xbmc.log(f"NAVIDROME SYNC: Using database {db_path}", xbmc.LOGINFO)
-        return db_path
+        xbmc.log(f"NAVIDROME SYNC: Using database {latest_db}", xbmc.LOGINFO)
+        return latest_db
 
-    def _get_or_create_artist(self, conn, artist_data):
-        """Get or create artist in database using Navidrome ID"""
+    def _get_or_create_path(self, conn):
+        """Get or create a single path entry for all Navidrome content"""
         cursor = conn.cursor()
 
-        navidrome_id = artist_data.get('id', '')
-        artist_name = artist_data.get('name', '')
+        # Use plugin:// URL as the path (like Jellyfin does)
+        plugin_path = f"plugin://{ADDON_ID}/"
 
-        # Check if artist exists by Navidrome ID (stored in comment field)
-        cursor.execute("SELECT idArtist FROM artist WHERE strArtist = ? AND strBiography LIKE ?", 
-                      (artist_name, f'%navidrome_id:{navidrome_id}%'))
+        cursor.execute("SELECT idPath FROM path WHERE strPath = ?", (plugin_path,))
         result = cursor.fetchone()
 
         if result:
             return result[0]
 
-        # Create new artist with Navidrome ID in biography
-        biography = artist_data.get('biography', '')
-        if biography:
-            biography += f"\n\nnavidrome_id:{navidrome_id}"
-        else:
-            biography = f"navidrome_id:{navidrome_id}"
+        cursor.execute("INSERT INTO path (strPath, strHash) VALUES (?, '')", (plugin_path,))
+        return cursor.lastrowid
+
+    def _get_or_create_artist(self, conn, artist_data):
+        """Get or create artist in Kodi database"""
+        cursor = conn.cursor()
+
+        # Use Navidrome ID as unique identifier
+        navidrome_id = f"navidrome://{artist_data['id']}"
 
         cursor.execute("""
+            SELECT idArtist FROM artist 
+            WHERE strMusicBrainzArtistID = ?
+        """, (navidrome_id,))
+
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+
+        # Create new artist
+        cursor.execute("""
             INSERT INTO artist (
-                strArtist, strMusicBrainzArtistID, strSortName, 
+                strArtist, strMusicBrainzArtistID, strSortName,
                 strGenres, strBiography, dateAdded
-            ) VALUES (?, NULL, ?, ?, ?, datetime('now'))
+            )
+            VALUES (?, ?, ?, ?, ?, datetime('now'))
         """, (
-            artist_name,
-            artist_data.get('sortName', artist_name),
-            ', '.join(artist_data.get('genres', [])) if artist_data.get('genres') else '',
-            biography
+            artist_data.get('name', 'Unknown Artist'),
+            navidrome_id,
+            artist_data.get('sortName', artist_data.get('name', '')),
+            ', '.join(artist_data.get('genres', [])),
+            artist_data.get('biography', '')
         ))
 
         return cursor.lastrowid
 
-    def _get_or_create_album(self, conn, album_data, artist_kodi_id, path_id):
-        """Get or create album in database using Navidrome ID"""
+    def _get_or_create_album(self, conn, album_data, artist_kodi_id):
+        """Get or create album in Kodi database"""
         cursor = conn.cursor()
 
-        navidrome_id = album_data.get('id', '')
-        album_name = album_data.get('name', '')
-        artist_name = album_data.get('artist', '')
+        # Use Navidrome ID as unique identifier
+        navidrome_id = f"navidrome://{album_data['id']}"
 
-        # Check if album exists by name and artist
         cursor.execute("""
             SELECT idAlbum FROM album 
-            WHERE strAlbum = ? AND strArtistDisp = ?
-        """, (album_name, artist_name))
-        result = cursor.fetchone()
+            WHERE strMusicBrainzAlbumID = ?
+        """, (navidrome_id,))
 
+        result = cursor.fetchone()
         if result:
             return result[0]
 
-        # Extract year from album data
-        year = album_data.get('year', 0)
-        release_date = str(year) if year else ''
-
-        # Store Navidrome ID in strMusicBrainzAlbumID field with prefix
-        mbid_field = f"navidrome:{navidrome_id}"
-
         # Create new album
+        year = album_data.get('year', 0)
         cursor.execute("""
             INSERT INTO album (
-                strAlbum, strMusicBrainzAlbumID, strArtistDisp, strArtistSort,
-                strGenres, strReleaseDate, strOrigReleaseDate, bCompilation,
-                iDiscTotal, dateAdded, idInfoSetting
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
+                strAlbum, strMusicBrainzAlbumID, strArtistDisp,
+                strGenres, strReleaseDate, iYear, dateAdded, idInfoSetting
+            )
+            VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0)
         """, (
-            album_name,
-            mbid_field,
-            artist_name,
-            album_data.get('artistSort', artist_name),
+            album_data.get('name', 'Unknown Album'),
+            navidrome_id,
+            album_data.get('artist', 'Unknown Artist'),
             album_data.get('genre', ''),
-            release_date,
-            release_date,
-            1 if album_data.get('compilation') else 0,
-            album_data.get('discCount', 1)
+            str(year) if year else '',
+            year
         ))
 
-        album_id = cursor.lastrowid
+        album_kodi_id = cursor.lastrowid
 
         # Link album to artist
         cursor.execute("""
-            INSERT INTO album_artist (idArtist, idAlbum, iOrder, strArtist)
+            INSERT OR IGNORE INTO album_artist (idArtist, idAlbum, iOrder, strArtist)
             VALUES (?, ?, 0, ?)
-        """, (artist_kodi_id, album_id, artist_name))
+        """, (artist_kodi_id, album_kodi_id, album_data.get('artist', 'Unknown Artist')))
 
-        return album_id
+        return album_kodi_id
 
-    def _get_or_create_path(self, conn, path_str):
-        """Get or create path in database"""
+    def _add_song(self, conn, song_data, album_kodi_id, path_id):
+        """Add song to Kodi database"""
         cursor = conn.cursor()
 
-        cursor.execute("SELECT idPath FROM path WHERE strPath = ?", (path_str,))
-        result = cursor.fetchone()
+        # Use Navidrome ID as unique identifier
+        navidrome_id = f"navidrome://{song_data['id']}"
 
-        if result:
-            return result[0]
-
-        cursor.execute("INSERT INTO path (strPath, strHash) VALUES (?, '')", (path_str,))
-        return cursor.lastrowid
-
-    def _add_song(self, conn, song_data, album_kodi_id, path_id, strm_file):
-        """Add song to database using Navidrome ID"""
-        cursor = conn.cursor()
-
-        navidrome_id = song_data.get('id', '')
-        song_title = song_data.get('title', '')
-
-        # Check if song already exists by Navidrome ID in comment
+        # Check if song already exists
         cursor.execute("""
             SELECT idSong FROM song 
-            WHERE idAlbum = ? AND comment LIKE ?
-        """, (album_kodi_id, f'%navidrome_id:{navidrome_id}%'))
+            WHERE strMusicBrainzTrackID = ?
+        """, (navidrome_id,))
+
         result = cursor.fetchone()
-
         if result:
-            # Song already exists, skip
             return result[0]
-        
-        filename = os.path.basename(strm_file)
 
-        # Extract year from song data
-        year = song_data.get('year', 0)
-        release_date = str(year) if year else ''
+        # Create plugin URL as filename (like Jellyfin does)
+        plugin_url = f"plugin://{ADDON_ID}/?action=play_track&id={song_data['id']}"
 
-        # Calculate track number (disc in upper 4 bytes, track in lower 4 bytes)
+        # Calculate track number (disc in upper 16 bits, track in lower 16 bits)
         disc_num = song_data.get('discNumber', 1)
         track_num = song_data.get('track', 0)
         itrack = (disc_num << 16) | track_num
 
-        # Store Navidrome ID in comment field
-        comment = song_data.get('comment', '')
-        if comment:
-            comment += f"\n\nnavidrome_id:{navidrome_id}"
-        else:
-            comment = f"navidrome_id:{navidrome_id}"
+        year = song_data.get('year', 0)
 
         cursor.execute("""
             INSERT INTO song (
-                idAlbum, idPath, strArtistDisp, strArtistSort, strGenres,
-                strTitle, iTrack, iDuration, strReleaseDate, strOrigReleaseDate,
-                strFileName, strMusicBrainzTrackID, comment, dateAdded,
+                idAlbum, idPath, strArtistDisp, strGenres, strTitle,
+                iTrack, iDuration, iYear, strFileName,
+                strMusicBrainzTrackID, dateAdded,
                 iBitRate, iSampleRate, iChannels
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, datetime('now'), ?, ?, ?)
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)
         """, (
             album_kodi_id,
             path_id,
-            song_data.get('artist', ''),
-            song_data.get('artistSort', song_data.get('artist', '')),
+            song_data.get('artist', 'Unknown Artist'),
             song_data.get('genre', ''),
-            song_title,
+            song_data.get('title', 'Unknown'),
             itrack,
             song_data.get('duration', 0),
-            release_date,
-            release_date,
-            filename,
-            comment,
+            year,
+            plugin_url,  # Use plugin URL as filename
+            navidrome_id,
             song_data.get('bitRate', 0),
             song_data.get('sampleRate', 0),
-            song_data.get('channels', 2)
+            2  # Default to stereo
         ))
 
         song_id = cursor.lastrowid
 
         # Link song to artist
-        artist_name = song_data.get('artist', '')
-        if artist_name:
-            # Get or create artist
-            cursor.execute("SELECT idArtist FROM artist WHERE strArtist = ?", (artist_name,))
-            result = cursor.fetchone()
+        artist_name = song_data.get('artist', 'Unknown Artist')
 
-            if result:
-                artist_id = result[0]
-            else:
-                cursor.execute("""
-                    INSERT INTO artist (strArtist, strMusicBrainzArtistID, dateAdded)
-                    VALUES (?, NULL, datetime('now'))
-                """, (artist_name,))
-                artist_id = cursor.lastrowid
+        # Get or create artist for song
+        cursor.execute("SELECT idArtist FROM artist WHERE strArtist = ?", (artist_name,))
+        result = cursor.fetchone()
 
-            # Get role ID for "Artist" (usually 1)
-            cursor.execute("SELECT idRole FROM role WHERE strRole = 'Artist'")
-            result = cursor.fetchone()
-            role_id = result[0] if result else 1
-
+        if result:
+            artist_id = result[0]
+        else:
             cursor.execute("""
-                INSERT INTO song_artist (idArtist, idSong, idRole, iOrder, strArtist)
-                VALUES (?, ?, ?, 0, ?)
-            """, (artist_id, song_id, role_id, artist_name))
+                INSERT INTO artist (strArtist, dateAdded)
+                VALUES (?, datetime('now'))
+            """, (artist_name,))
+            artist_id = cursor.lastrowid
+
+        # Get role ID for "Artist" (usually 1)
+        cursor.execute("SELECT idRole FROM role WHERE strRole = 'Artist'")
+        result = cursor.fetchone()
+        role_id = result[0] if result else 1
+
+        cursor.execute("""
+            INSERT INTO song_artist (idArtist, idSong, idRole, iOrder, strArtist)
+            VALUES (?, ?, ?, 0, ?)
+        """, (artist_id, song_id, role_id, artist_name))
 
         return song_id
 
-    def full_sync(self, progress_callback=None):
+    def full_sync(self):
         """Perform full library sync"""
-        # Check if sync is already running
-        if self._sync_lock:
-            xbmc.log("NAVIDROME SYNC: Sync already in progress, skipping", xbmc.LOGWARNING)
+        if not self._acquire_lock():
+            xbmc.log("NAVIDROME SYNC: Sync already in progress", xbmc.LOGWARNING)
             return False
-
-        self._sync_lock = True
 
         try:
             xbmc.log("NAVIDROME SYNC: Starting full sync", xbmc.LOGINFO)
 
-            # Get library path
-            library_path = self.addon.getSetting('library_path')
-            if not library_path:
-                raise Exception("Library path not configured")
+            # Get Kodi database path
+            db_path = self._get_kodi_db_path()
 
-            # Ensure library path exists
-            if not xbmcvfs.exists(library_path):
-                xbmcvfs.mkdirs(library_path)
-
-            # Connect to database with timeout
-            db_path = self._get_db_path()
+            # Connect to database with WAL mode for better concurrency
             conn = sqlite3.connect(db_path, timeout=30.0)
+            conn.execute("PRAGMA journal_mode=WAL")
 
             try:
-                # Get all artists
+                # Get or create single path entry for all content
+                path_id = self._get_or_create_path(conn)
+
+                # Get all artists from Navidrome
                 artists = self.api.get_artists()
                 xbmc.log(f"NAVIDROME SYNC: Found {len(artists)} artists", xbmc.LOGINFO)
 
-                total_items = len(artists)
-                processed = 0
+                total_tracks = 0
 
-                for artist_data in artists:
-                    if progress_callback:
-                        if hasattr(progress_callback, 'iscanceled') and progress_callback.iscanceled():
-                            xbmc.log("NAVIDROME SYNC: Sync cancelled by user", xbmc.LOGINFO)
-                            return False
+                for i, artist_data in enumerate(artists):
+                    # Progress update every 10 artists
+                    if i % 10 == 0:
+                        xbmc.log(f"NAVIDROME SYNC: Processing artist {i+1}/{len(artists)}", xbmc.LOGINFO)
 
-                        progress_callback.update(
-                            int((processed / total_items) * 100),
-                            f"Syncing {artist_data.get('name', 'Unknown')}"
-                        )
-
-                    # Create artist folder
-                    artist_name = self._sanitize_filename(artist_data.get('name', 'Unknown'))
-                    artist_path = os.path.join(library_path, artist_name)
-                    if not xbmcvfs.exists(artist_path):
-                        xbmcvfs.mkdirs(artist_path)
-
-                    # Get or create artist in DB
+                    # Get or create artist
                     artist_kodi_id = self._get_or_create_artist(conn, artist_data)
 
-                    # Get albums for artist using get_artist() method
-                    artist_id = artist_data['id']
-                    artist_full = self.api.get_artist(artist_id)
-
-                    if not artist_full:
-                        xbmc.log(f"NAVIDROME SYNC: Failed to get artist details for {artist_name}", xbmc.LOGWARNING)
-                        processed += 1
-                        continue
-
-                    albums = artist_full.get('album', [])
+                    # Get albums for artist
+                    albums = self.api.get_artist_albums(artist_data['id'])
 
                     for album_data in albums:
-                        # Create album folder
-                        album_name = self._sanitize_filename(album_data.get('name', 'Unknown'))
-                        album_path = os.path.join(artist_path, album_name)
-                        if not xbmcvfs.exists(album_path):
-                            xbmcvfs.mkdirs(album_path)
+                        # Get or create album
+                        album_kodi_id = self._get_or_create_album(conn, album_data, artist_kodi_id)
 
-                        # Get path ID
-                        path_id = self._get_or_create_path(conn, album_path + '/')
+                        # Get tracks for album
+                        tracks = self.api.get_album_tracks(album_data['id'])
 
-                        # Get or create album in DB
-                        album_kodi_id = self._get_or_create_album(conn, album_data, artist_kodi_id, path_id)
+                        for track_data in tracks:
+                            # Add track to database
+                            self._add_song(conn, track_data, album_kodi_id, path_id)
+                            total_tracks += 1
 
-                        # Get songs for album using get_album() method
-                        album_id = album_data['id']
-                        album_full = self.api.get_album(album_id)
-
-                        if not album_full:
-                            xbmc.log(f"NAVIDROME SYNC: Failed to get album details for {album_name}", xbmc.LOGWARNING)
-                            continue
-
-                        songs = album_full.get('song', [])
-
-                        for song_data in songs:
-                            # Create .strm file
-                            track_num = song_data.get('track', 0)
-                            song_title = self._sanitize_filename(song_data.get('title', 'Unknown'))
-                            strm_filename = f"{track_num:02d} - {song_title}.strm"
-                            strm_path = os.path.join(album_path, strm_filename)
-
-                            # Write stream URL to .strm file
-                            stream_url = self.api.get_stream_url(song_data['id'])
-                            with open(xbmcvfs.translatePath(strm_path), 'w', encoding='utf-8') as f:
-                                f.write(stream_url)
-
-                            # Add song to database
-                            self._add_song(conn, song_data, album_kodi_id, path_id, strm_path)
-
-                    processed += 1
-
+                # Commit all changes
                 conn.commit()
-                xbmc.log("NAVIDROME SYNC: Full sync completed successfully", xbmc.LOGINFO)
+                xbmc.log(f"NAVIDROME SYNC: Full sync completed ({total_tracks} tracks)", xbmc.LOGINFO)
+
+                # Update library timestamp
+                ADDON.setSetting('last_sync', str(int(time.time())))
+
+                # Trigger Kodi library update
+                xbmc.executebuiltin('UpdateLibrary(music)')
+
                 return True
 
             finally:
                 conn.close()
 
         except Exception as e:
-            xbmc.log(f"NAVIDROME SYNC: Error during sync: {str(e)}", xbmc.LOGERROR)
+            xbmc.log(f"NAVIDROME SYNC: Error during sync: {e}", xbmc.LOGERROR)
             import traceback
             xbmc.log(traceback.format_exc(), xbmc.LOGERROR)
             return False
         finally:
-            self._sync_lock = False
+            self._release_lock()
 
-    def incremental_sync(self, progress_callback=None):
-        """Perform incremental library sync (stub for now)"""
-        xbmc.log("NAVIDROME SYNC: Incremental sync not yet implemented, performing full sync", xbmc.LOGINFO)
-        return self.full_sync(progress_callback)
+    def incremental_sync(self):
+        """Perform incremental sync"""
+        xbmc.log("NAVIDROME SYNC: Incremental sync not implemented, doing full sync", xbmc.LOGINFO)
+        return self.full_sync()
 
-    def clear_library(self, progress_callback=None):
-        """Clear synced library files"""
-        try:
-            library_path = self.addon.getSetting('library_path')
-            if not library_path or not xbmcvfs.exists(library_path):
-                return True
-
-            if progress_callback:
-                progress_callback.update(0, "Clearing library files...")
-
-            # Remove all files and folders
-            dirs, files = xbmcvfs.listdir(library_path)
-
-            for file in files:
-                xbmcvfs.delete(os.path.join(library_path, file))
-
-            for dir in dirs:
-                self._remove_dir_recursive(os.path.join(library_path, dir))
-
-            xbmc.log("NAVIDROME SYNC: Library cleared successfully", xbmc.LOGINFO)
-            return True
-
-        except Exception as e:
-            xbmc.log(f"NAVIDROME SYNC: Error clearing library: {str(e)}", xbmc.LOGERROR)
+    def clear_library(self):
+        """Clear all Navidrome items from Kodi library"""
+        if not self._acquire_lock():
+            xbmc.log("NAVIDROME SYNC: Sync in progress, cannot clear", xbmc.LOGWARNING)
             return False
 
-    def _remove_dir_recursive(self, path):
-        """Recursively remove directory"""
-        dirs, files = xbmcvfs.listdir(path)
+        try:
+            xbmc.log("NAVIDROME SYNC: Clearing library", xbmc.LOGINFO)
 
-        for file in files:
-            xbmcvfs.delete(os.path.join(path, file))
+            # Get Kodi database path
+            db_path = self._get_kodi_db_path()
 
-        for dir in dirs:
-            self._remove_dir_recursive(os.path.join(path, dir))
+            # Connect to database
+            conn = sqlite3.connect(db_path, timeout=30.0)
+            conn.execute("PRAGMA journal_mode=WAL")
 
-        xbmcvfs.rmdir(path)
+            try:
+                cursor = conn.cursor()
 
-    def _sanitize_filename(self, filename):
-        """Sanitize filename for filesystem"""
-        # Remove invalid characters
-        invalid_chars = '<>:"/\\|?*'
-        for char in invalid_chars:
-            filename = filename.replace(char, '_')
-        return filename
+                # Delete songs with navidrome:// MusicBrainz IDs
+                cursor.execute("""
+                    DELETE FROM song 
+                    WHERE strMusicBrainzTrackID LIKE 'navidrome://%'
+                """)
+
+                # Delete albums with navidrome:// MusicBrainz IDs
+                cursor.execute("""
+                    DELETE FROM album 
+                    WHERE strMusicBrainzAlbumID LIKE 'navidrome://%'
+                """)
+
+                # Delete artists with navidrome:// MusicBrainz IDs
+                cursor.execute("""
+                    DELETE FROM artist 
+                    WHERE strMusicBrainzArtistID LIKE 'navidrome://%'
+                """)
+
+                # Delete plugin path
+                cursor.execute("""
+                    DELETE FROM path 
+                    WHERE strPath LIKE 'plugin://plugin.kodi.navidrome/%'
+                """)
+
+                conn.commit()
+
+                xbmc.log("NAVIDROME SYNC: Library cleared successfully", xbmc.LOGINFO)
+
+                # Clear sync timestamp
+                ADDON.setSetting('last_sync', '')
+
+                # Trigger Kodi library clean
+                xbmc.executebuiltin('CleanLibrary(music)')
+
+                return True
+
+            finally:
+                conn.close()
+
+        except Exception as e:
+            xbmc.log(f"NAVIDROME SYNC: Error clearing library: {e}", xbmc.LOGERROR)
+            import traceback
+            xbmc.log(traceback.format_exc(), xbmc.LOGERROR)
+            return False
+        finally:
+            self._release_lock()

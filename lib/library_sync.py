@@ -36,48 +36,65 @@ class LibrarySync:
         return db_path
 
     def _get_or_create_artist(self, conn, artist_data):
-        """Get or create artist in database"""
+        """Get or create artist in database using Navidrome ID"""
         cursor = conn.cursor()
 
-        # Check if artist exists
-        cursor.execute("SELECT idArtist FROM artist WHERE strMusicBrainzArtistID = ?", 
-                      (artist_data.get('mbzArtistId', ''),))
+        navidrome_id = artist_data.get('id', '')
+        artist_name = artist_data.get('name', '')
+
+        # Check if artist exists by Navidrome ID (stored in comment field)
+        cursor.execute("SELECT idArtist FROM artist WHERE strArtist = ? AND strBiography LIKE ?", 
+                      (artist_name, f'%navidrome_id:{navidrome_id}%'))
         result = cursor.fetchone()
 
         if result:
             return result[0]
 
-        # Create new artist
+        # Create new artist with Navidrome ID in biography
+        biography = artist_data.get('biography', '')
+        if biography:
+            biography += f"\n\nnavidrome_id:{navidrome_id}"
+        else:
+            biography = f"navidrome_id:{navidrome_id}"
+
         cursor.execute("""
             INSERT INTO artist (
                 strArtist, strMusicBrainzArtistID, strSortName, 
                 strGenres, strBiography, dateAdded
-            ) VALUES (?, ?, ?, ?, ?, datetime('now'))
+            ) VALUES (?, '', ?, ?, ?, datetime('now'))
         """, (
-            artist_data.get('name', ''),
-            artist_data.get('mbzArtistId', ''),
-            artist_data.get('sortName', artist_data.get('name', '')),
+            artist_name,
+            artist_data.get('sortName', artist_name),
             ', '.join(artist_data.get('genres', [])) if artist_data.get('genres') else '',
-            artist_data.get('biography', '')
+            biography
         ))
 
         return cursor.lastrowid
 
     def _get_or_create_album(self, conn, album_data, artist_kodi_id, path_id):
-        """Get or create album in database"""
+        """Get or create album in database using Navidrome ID"""
         cursor = conn.cursor()
 
-        # Check if album exists
-        mbid = album_data.get('mbzAlbumId', '')
-        if mbid:
-            cursor.execute("SELECT idAlbum FROM album WHERE strMusicBrainzAlbumID = ?", (mbid,))
-            result = cursor.fetchone()
-            if result:
-                return result[0]
+        navidrome_id = album_data.get('id', '')
+        album_name = album_data.get('name', '')
+        artist_name = album_data.get('artist', '')
+
+        # Check if album exists by name and artist
+        cursor.execute("""
+            SELECT idAlbum FROM album 
+            WHERE strAlbum = ? AND strArtistDisp = ?
+        """, (album_name, artist_name))
+        result = cursor.fetchone()
+
+        if result:
+            return result[0]
 
         # Extract year from album data
         year = album_data.get('year', 0)
         release_date = str(year) if year else ''
+
+        # Store Navidrome ID in strMusicBrainzAlbumID field with prefix
+        mbid_field = f"navidrome:{navidrome_id}"
 
         # Create new album
         cursor.execute("""
@@ -87,10 +104,10 @@ class LibrarySync:
                 iDiscTotal, dateAdded, idInfoSetting
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
         """, (
-            album_data.get('name', ''),
-            mbid,
-            album_data.get('artist', ''),
-            album_data.get('artistSort', album_data.get('artist', '')),
+            album_name,
+            mbid_field,
+            artist_name,
+            album_data.get('artistSort', artist_name),
             album_data.get('genre', ''),
             release_date,
             release_date,
@@ -104,7 +121,7 @@ class LibrarySync:
         cursor.execute("""
             INSERT INTO album_artist (idArtist, idAlbum, iOrder, strArtist)
             VALUES (?, ?, 0, ?)
-        """, (artist_kodi_id, album_id, album_data.get('artist', '')))
+        """, (artist_kodi_id, album_id, artist_name))
 
         return album_id
 
@@ -122,8 +139,23 @@ class LibrarySync:
         return cursor.lastrowid
 
     def _add_song(self, conn, song_data, album_kodi_id, path_id, strm_file):
-        """Add song to database"""
+        """Add song to database using Navidrome ID"""
         cursor = conn.cursor()
+
+        navidrome_id = song_data.get('id', '')
+        song_title = song_data.get('title', '')
+
+        # Check if song already exists by filename (which includes Navidrome ID in path)
+        filename = os.path.basename(strm_file)
+        cursor.execute("""
+            SELECT idSong FROM song 
+            WHERE strFileName = ? AND idPath = ?
+        """, (filename, path_id))
+        result = cursor.fetchone()
+
+        if result:
+            # Song already exists, skip
+            return result[0]
 
         # Extract year from song data
         year = song_data.get('year', 0)
@@ -133,6 +165,9 @@ class LibrarySync:
         disc_num = song_data.get('discNumber', 1)
         track_num = song_data.get('track', 0)
         itrack = (disc_num << 16) | track_num
+
+        # Store Navidrome ID in strMusicBrainzTrackID field with prefix
+        mbid_field = f"navidrome:{navidrome_id}"
 
         cursor.execute("""
             INSERT INTO song (
@@ -147,13 +182,13 @@ class LibrarySync:
             song_data.get('artist', ''),
             song_data.get('artistSort', song_data.get('artist', '')),
             song_data.get('genre', ''),
-            song_data.get('title', ''),
+            song_title,
             itrack,
             song_data.get('duration', 0),
             release_date,
             release_date,
-            os.path.basename(strm_file),
-            song_data.get('mbzTrackId', ''),
+            filename,
+            mbid_field,
             song_data.get('comment', ''),
             song_data.get('bitRate', 0),
             song_data.get('sampleRate', 0),

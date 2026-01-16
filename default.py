@@ -181,7 +181,7 @@ def add_album_item(api, album):
     title = album.get('name', 'Unknown Album')
     artist_name = album.get('artist', 'Unknown Artist')
     artist_id = album.get('artistId')
-    year = album.get('year', '')
+    year = int(album.get('year', 0)) if album.get('year') else 0  # Convert to int
     starred = album.get('starred') is not None
     
     url = build_url({"action": "album", "id": album_id})
@@ -192,7 +192,8 @@ def add_album_item(api, album):
     music_tag.setTitle(title)
     music_tag.setAlbum(title)
     music_tag.setArtist(artist_name)
-    music_tag.setYear(year)
+    if year > 0:  # Only set year if valid
+        music_tag.setYear(year)
     music_tag.setMediaType('album')
     
     # Add cover art
@@ -268,9 +269,9 @@ def add_track_item(api, track):
     title = track.get('title') or track.get('name', 'Unknown Track')
     artist = track.get('artist') or track.get('artistName', 'Unknown Artist')
     album_name = track.get('album') or track.get('albumName', 'Unknown Album')
-    duration = track.get('duration', 0)
+    duration = int(track.get('duration', 0))  # Convert to int
     track_number = track.get('track') or track.get('trackNumber', 0)
-    year = track.get('year', '')
+    year = int(track.get('year', 0)) if track.get('year') else 0  # Convert to int
     artist_id = track.get('artistId')
     album_id = track.get('albumId')
     starred = track.get('starred') is not None
@@ -293,9 +294,10 @@ def add_track_item(api, track):
     music_tag.setTitle(title)
     music_tag.setArtist(artist)
     music_tag.setAlbum(album_name)
-    music_tag.setDuration(duration)
+    music_tag.setDuration(duration)  # Now it's an int
     music_tag.setTrack(track_number)
-    music_tag.setYear(year)
+    if year > 0:  # Only set year if valid
+        music_tag.setYear(year)
     music_tag.setMediaType('song')
     
     # Determine MIME type based on transcoding settings or original format
@@ -971,7 +973,9 @@ def list_genres():
         
         music_tag = li.getMusicInfoTag()
         music_tag.setTitle(genre_name)
-        music_tag.setGenre(genre_name)
+        # Don't use setGenre() - it doesn't exist
+        # Optionally use setGenres() with a list if needed:
+        # music_tag.setGenres([genre_name])
         
         xbmcplugin.addDirectoryItem(
             handle=ADDON_HANDLE,

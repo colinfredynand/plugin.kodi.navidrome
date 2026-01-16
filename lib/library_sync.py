@@ -61,7 +61,7 @@ class LibrarySync:
             INSERT INTO artist (
                 strArtist, strMusicBrainzArtistID, strSortName, 
                 strGenres, strBiography, dateAdded
-            ) VALUES (?, '', ?, ?, ?, datetime('now'))
+            ) VALUES (?, NULL, ?, ?, ?, datetime('now'))
         """, (
             artist_name,
             artist_data.get('sortName', artist_name),
@@ -208,8 +208,8 @@ class LibrarySync:
                 artist_id = result[0]
             else:
                 cursor.execute("""
-                    INSERT INTO artist (strArtist, dateAdded)
-                    VALUES (?, datetime('now'))
+                    INSERT INTO artist (strArtist, strMusicBrainzArtistID, dateAdded)
+                    VALUES (?, NULL, datetime('now'))
                 """, (artist_name,))
                 artist_id = cursor.lastrowid
 

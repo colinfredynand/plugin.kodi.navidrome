@@ -21,7 +21,7 @@
 
 ## Installation
 
-1.  Download the latest release zip file from the [Releases](https://github.com/colinfredynand/plugin.kodi.navidrome/releases) page (or clone the repo and zip it).
+1.  Download the latest release zip file from the [Releases](https://github.com/colinfredynand/plugin.kodi.navidrome/releases) page.
 2.  Open Kodi and go to **Settings** > **Add-ons**.
 3.  Select **Install from zip file**.
 4.  Navigate to the downloaded zip file and select it.

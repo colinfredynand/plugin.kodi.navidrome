@@ -489,9 +489,9 @@ def list_albums_random(offset=0):
     total = getattr(api, 'last_total_count', 0)
     if total:
         if offset + len(albums) < total:
-            add_load_more_item("albums_all", offset + items_per_page)
+            add_load_more_item("albums_random", offset + items_per_page)
     elif len(albums) >= items_per_page:
-        add_load_more_item("albums_all", offset + items_per_page)
+        add_load_more_item("albums_random", offset + items_per_page)
     
     xbmcplugin.setContent(ADDON_HANDLE, 'albums')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)

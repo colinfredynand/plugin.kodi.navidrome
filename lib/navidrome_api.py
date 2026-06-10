@@ -29,11 +29,9 @@ class NavidromeAPI:
         # Get settings of addon
         addon = xbmcaddon.Addon()
         self.enable_transcoding = addon.getSettingBool('enable_transcoding')
-        self.max_bitrate = int(addon.getSetting('max_bitrate') or '4')  # 0=64 ... 6=320
+        self.max_bitrate = int(addon.getSetting('max_bitrate') or '192')
 
-        format_index = int(addon.getSetting('transcode_format') or '0')
-        formats = ['mp3', 'opus', 'aac']
-        self.transcode_format = formats[format_index]
+        self.transcode_format = addon.getSetting('transcode_format') or 'mp3'
 
         self.api_timeout = int(addon.getSetting('api_timeout') or '10')
         self.enable_debug = addon.getSettingBool('enable_debug')
@@ -513,8 +511,7 @@ class NavidromeAPI:
         """Get stream URL for a song."""
         params = {'id': song_id}
         if self.enable_transcoding:
-            bitrates = [64, 96, 128, 160, 192, 256, 320]
-            params['maxBitRate'] = bitrates[self.max_bitrate]
+            params['maxBitRate'] = self.max_bitrate
             params['format'] = self.transcode_format
         elif max_bit_rate:
             params['maxBitRate'] = max_bit_rate

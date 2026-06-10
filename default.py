@@ -364,6 +364,12 @@ def add_track_item(api, track):
         'Add to Playlist',
         f'RunPlugin({build_url({"action": "add_to_playlist", "id": track_id, "name": title})})'
     ))
+
+    # Similar Songs (sonicSimilarity ext if available, else Instant Mix)
+    context_menu.append((
+        'Similar Songs',
+        f'Container.Update({build_url({"action": "similar_songs", "id": track_id, "name": title})})'
+    ))
     
     # Go to Album
     if album_id:
@@ -436,7 +442,14 @@ def list_albums_all(offset=0):
         add_album_item(api, album)
     
     # Add "Load More" if we got a full page
-    if len(albums) >= items_per_page:
+    '''if len(albums) >= items_per_page:
+        add_load_more_item("albums_all", offset + items_per_page)'''
+
+    total = getattr(api, 'last_total_count', 0)
+    if total:
+        if offset + len(albums) < total:
+            add_load_more_item("albums_all", offset + items_per_page)
+    elif len(albums) >= items_per_page:
         add_load_more_item("albums_all", offset + items_per_page)
     
     xbmcplugin.addSortMethod(ADDON_HANDLE, xbmcplugin.SORT_METHOD_ALBUM)
@@ -470,8 +483,15 @@ def list_albums_random(offset=0):
         add_album_item(api, album)
     
     # Add "Load More" if we got a full page
-    if len(albums) >= items_per_page:
-        add_load_more_item("albums_random", offset + items_per_page)
+    '''if len(albums) >= items_per_page:
+        add_load_more_item("albums_random", offset + items_per_page)'''
+    
+    total = getattr(api, 'last_total_count', 0)
+    if total:
+        if offset + len(albums) < total:
+            add_load_more_item("albums_all", offset + items_per_page)
+    elif len(albums) >= items_per_page:
+        add_load_more_item("albums_all", offset + items_per_page)
     
     xbmcplugin.setContent(ADDON_HANDLE, 'albums')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
@@ -679,7 +699,7 @@ def list_radios():
     xbmcplugin.setContent(ADDON_HANDLE, 'songs')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
-def play_track(track_id):
+'''def play_track(track_id):
     """Play a track"""
     try:
         api = get_api()
@@ -711,7 +731,7 @@ def play_track(track_id):
     except Exception as e:
         xbmc.log(f"NAVIDROME: Error playing track: {str(e)}", xbmc.LOGERROR)
         xbmcgui.Dialog().notification('Navidrome', 'Error playing track', xbmcgui.NOTIFICATION_ERROR)
-        xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())
+        xbmcplugin.setResolvedUrl(HANDLE, False, xbmcgui.ListItem())'''
 
 
 def list_playlists():
@@ -757,6 +777,30 @@ def list_playlists():
         )
     
     xbmcplugin.setContent(ADDON_HANDLE, 'playlists')
+    xbmcplugin.endOfDirectory(ADDON_HANDLE)
+
+def list_similar_songs(track_id, track_name=''):
+    """List sonically/metadata-similar songs for a track."""
+    api = get_api()
+    if not api:
+        return
+
+    # Prefers sonicSimilarity extension (v0.62), falls back to Instant Mix
+    songs = api.get_sonic_similar_tracks(track_id)
+
+    if not songs:
+        xbmcgui.Dialog().notification(
+            'Navidrome',
+            'No similar songs found',
+            xbmcgui.NOTIFICATION_INFO
+        )
+        xbmcplugin.endOfDirectory(ADDON_HANDLE)
+        return
+
+    for track in songs:
+        add_track_item(api, track)
+
+    xbmcplugin.setContent(ADDON_HANDLE, 'songs')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
 
@@ -1091,10 +1135,6 @@ def router(paramstring):
         root_menu()
     elif action == "albums_menu":
         albums_menu()
-    elif action == "albums_all":
-        list_albums_all()
-    elif action == "albums_random":
-        list_albums_random()
     elif action == "albums_favourites":
         list_albums_favourites()
     elif action == "albums_top_rated":
@@ -1111,8 +1151,6 @@ def router(paramstring):
         list_artist_albums(params.get("id"))
     elif action == "album":
         list_album_tracks(params.get("id"))
-    elif action == "songs":
-        list_songs()
     elif action == "radios":
         list_radios()
     elif action == "playlists":
@@ -1127,6 +1165,8 @@ def router(paramstring):
         unstar_item(params.get("id"), params.get("type"), params.get("name"))
     elif action == "add_to_playlist":
         add_to_playlist_dialog(params.get("id"), params.get("name"))
+    elif action == "similar_songs":
+        list_similar_songs(params.get("id"), params.get("name"))
     elif action == "genres":
         list_genres()
     elif action == "genre":

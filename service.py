@@ -108,7 +108,7 @@ class NavidromePlayer(xbmc.Player):
             playing_file = self.getPlayingFile()
             
             # Check if it's a Navidrome URL
-            if 'rest/stream' not in playing_file:
+            if 'rest/stream' not in playing_file and '/api/stream' not in playing_file:
                 return None
             
             # Extract ID from URL parameter

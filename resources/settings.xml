@@ -25,6 +25,5 @@
     <category label="Advanced">
         <setting id="api_timeout" type="slider" label="API Timeout (seconds)" default="10" range="5,1,30" />
         <setting id="enable_debug" type="bool" label="Enable Debug Logging" default="false" />
-        <setting id="use_native_api" type="bool" label="Use Native API (when available)" default="true" />
     </category>
 </settings>

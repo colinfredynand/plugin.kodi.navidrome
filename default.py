@@ -677,7 +677,6 @@ def list_radios():
         homepage = radio.get('homePageUrl', '')
         
         li = xbmcgui.ListItem(label=name)
-        li = xbmcgui.ListItem(label=name)
         music_tag = li.getMusicInfoTag()
         music_tag.setTitle(name)
         music_tag.setComment(homepage)

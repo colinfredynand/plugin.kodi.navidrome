@@ -19,7 +19,7 @@
         <summary lang="en_GB">Navidrome music plugin</summary>
         <description lang="en_GB">Browse and play music from Navidrome with scrobbling support</description>
         <platform>all</platform>
-        <license>MIT</license>
+        <license>GPL-3.0-only</license>
         <assets>
             <icon>icon.png</icon>
         </assets>

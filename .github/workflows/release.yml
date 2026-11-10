@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match the version in addon.xml
+        run: |
+          version=$(python3 -c "import xml.etree.ElementTree as ET; print(ET.parse('addon.xml').getroot().get('version'))")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, addon.xml $version"; exit 1; }
+
+      - name: Unit tests
+        run: python3 -m unittest discover tests
+
+      - name: Build the zip Kodi installs
+        run: >
+          git archive --format=zip --prefix=plugin.kodi.navidrome/
+          -o plugin.kodi.navidrome.zip HEAD --
+          . ':(exclude)tests' ':(exclude).github' ':(exclude).gitignore'
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" plugin.kodi.navidrome.zip --title "$GITHUB_REF_NAME" --generate-notes

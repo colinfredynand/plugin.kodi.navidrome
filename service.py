@@ -71,6 +71,7 @@ class NavidromePlayer(xbmc.Player):
 
     def _reset(self):
         self.track_id = None
+        self.playing_file = None
         self.started_at = None
         self.duration = 0
         self.position = 0
@@ -128,6 +129,11 @@ class NavidromePlayer(xbmc.Player):
         except RuntimeError:
             return None
 
+        # Same file as at start: same track. Kodi resolves the next playlist
+        # item early (gapless), overwriting the offline marker mid-track.
+        if self.track_id and playing_file == self.playing_file:
+            return self.track_id
+
         track_id = track_id_from_path(playing_file)
         if track_id:
             return track_id
@@ -142,6 +148,10 @@ class NavidromePlayer(xbmc.Player):
     def _start(self, track_id):
         xbmc.log(f"NAVIDROME SERVICE: Started playing track {track_id}", xbmc.LOGINFO)
         self.track_id = track_id
+        try:
+            self.playing_file = self.getPlayingFile()
+        except RuntimeError:
+            self.playing_file = None
         self.started_at = time.time()
         self.scrobbled = False
         try:

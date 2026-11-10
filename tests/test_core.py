@@ -98,6 +98,20 @@ class PlaylistScrobbleTest(unittest.TestCase):
         scrobbled = [t for m, t in svc.calls if m == 'scrobble']
         self.assertEqual(scrobbled, ['a', 'b', 'c'])
 
+    def test_offline_track_survives_marker_overwrite(self):
+        markers = {'value': {'id': 'a', 'path': 'special://media/a.flac'}}
+        service.vfs.get_now_playing = lambda max_age=None: markers['value']
+        svc = FakeService()
+        player = FakePlayer(svc)
+        player.file, player.time = 'special://media/a.flac', 0.0
+        player.poll()
+        # Gapless: Kodi resolves the next item while 'a' still plays.
+        markers['value'] = {'id': 'b', 'path': 'special://media/b.flac'}
+        player.time = 150.0
+        player.poll()
+        self.assertEqual(player.track_id, 'a')
+        self.assertIn(('scrobble', 'a'), svc.calls)
+
     def test_skipped_track_not_scrobbled(self):
         svc = FakeService()
         player = FakePlayer(svc)

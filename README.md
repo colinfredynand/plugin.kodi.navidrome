@@ -80,8 +80,8 @@ After installation, you must configure the addon to connect to your Navidrome se
 
 ## Requirements
 
-Kodi 19 (Matrix) or newer. Tested against the Navidrome 0.64 API; older
-servers work, and features that need a newer server are skipped.
+Kodi 20 (Nexus) or newer. Targets the Navidrome 0.64 API; on older servers
+the features that need a newer server are skipped.
 
 ## Known Issues & Roadmap
 

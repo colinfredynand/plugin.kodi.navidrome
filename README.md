@@ -1,6 +1,8 @@
-# Navidrome Kodi Plugin
+# Music Client for Navidrome
 
-**plugin.kodi.navidrome** is a Kodi addon that allows you to stream your music collection directly from a [Navidrome](https://www.navidrome.org/) server. It provides a seamless integration with Kodi's music interface, supporting browsing, streaming, and library management features.
+Music Client for Navidrome is an independent third-party client. It is not affiliated with or endorsed by the Navidrome project.
+
+**Music Client for Navidrome** (`plugin.kodi.navidrome`) is a Kodi addon that allows you to stream your music collection directly from a [Navidrome](https://www.navidrome.org/) server. It provides a seamless integration with Kodi's music interface, supporting browsing, streaming, and library management features.
 
 ## Features
 
@@ -47,7 +49,7 @@
 After installation, you must configure the addon to connect to your Navidrome server:
 
 1.  Go to **Add-ons** > **Music add-ons**.
-2.  Right-click (or long-press) on **Navidrome** and select **Settings**.
+2.  Right-click (or long-press) on **Music Client for Navidrome** and select **Settings**.
 3.  Enter your connection details:
     *   **Server URL**: The full URL to your Navidrome instance (e.g., `https://music.mydomain.com` or `http://192.168.1.10:4533`).
     *   **Username**: Your Navidrome username.

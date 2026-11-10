@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <addon id="plugin.kodi.navidrome"
-       name="Navidrome"
-       version="0.7.0"
+       name="Music Client for Navidrome"
+       version="0.7.1"
        provider-name="colinfredynand">
 
     <requires>
@@ -16,12 +16,15 @@
     <extension point="xbmc.service" library="service.py" />
 
     <extension point="xbmc.addon.metadata">
-        <summary lang="en_GB">Navidrome music plugin</summary>
-        <description lang="en_GB">Browse and play music from Navidrome, with scrobbling, offline downloads and optional integration into Kodi's Music library</description>
+        <summary lang="en_GB">Music client for Navidrome servers</summary>
+        <description lang="en_GB">Browse and play music from Navidrome, with scrobbling, offline downloads and optional integration into Kodi's Music library. Music Client for Navidrome is an independent third-party client. It is not affiliated with or endorsed by the Navidrome project.</description>
         <platform>all</platform>
         <license>GPL-3.0-only</license>
         <source>https://github.com/colinfredynand/plugin.kodi.navidrome</source>
-        <news>v0.7.0 (Navidrome 0.64)
+        <news>v0.7.1
+- Renamed to "Music Client for Navidrome" with a new icon, to follow Navidrome's name and logo guidelines (navidrome.org/brand). Settings and downloads are kept.
+
+v0.7.0 (Navidrome 0.64)
 - New: Navidrome music in Kodi's own Music library (#9), off by default
 - New: up to 3 accounts with a main-menu switcher (#7)
 - New: Navidrome multi-library picker, Top Songs per artist

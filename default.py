@@ -14,6 +14,7 @@ from lib.navidrome_api import (
 )
 
 ADDON = xbmcaddon.Addon()
+ADDON_NAME = ADDON.getAddonInfo('name')
 ADDON_HANDLE = int(sys.argv[1])
 # Fixed, not sys.argv[0]: library songs are invoked through the /library/ path.
 BASE_URL = 'plugin://plugin.kodi.navidrome/'
@@ -42,7 +43,7 @@ def get_api():
     account = current_account()
     if not account_configured(account):
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Please configure server settings',
             xbmcgui.NOTIFICATION_WARNING
         )
@@ -224,7 +225,7 @@ def end_paged_directory(api, action, offset, limit, shown, content,
 
 def empty_directory(message, offset=0):
     if offset == 0:
-        xbmcgui.Dialog().notification('Navidrome', message, xbmcgui.NOTIFICATION_INFO)
+        xbmcgui.Dialog().notification(ADDON_NAME, message, xbmcgui.NOTIFICATION_INFO)
     xbmcplugin.endOfDirectory(ADDON_HANDLE, cacheToDisc=False)
 
 
@@ -240,7 +241,7 @@ def list_artists(offset=0, limit=None):
     # Test connection first
     if offset == 0 and not api.ping():
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Failed to connect to server',
             xbmcgui.NOTIFICATION_ERROR
         )
@@ -301,7 +302,7 @@ def list_artist_albums(artist_id):
 
     if not artist:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Failed to load artist',
             xbmcgui.NOTIFICATION_ERROR
         )
@@ -422,7 +423,7 @@ def list_album_tracks(album_id):
 
     if not album:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Failed to load album',
             xbmcgui.NOTIFICATION_ERROR
         )
@@ -695,7 +696,7 @@ def list_radios():
 
     if not radios:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'No radio stations found',
             xbmcgui.NOTIFICATION_INFO
         )
@@ -740,7 +741,7 @@ def list_playlists():
 
     if not playlists:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'No playlists found',
             xbmcgui.NOTIFICATION_INFO
         )
@@ -793,7 +794,7 @@ def list_similar_songs(track_id, track_name=''):
 
     if not songs:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'No similar songs found',
             xbmcgui.NOTIFICATION_INFO
         )
@@ -841,7 +842,7 @@ def switch_account():
     ADDON.setSetting('active_account', str(accounts[selected]['slot']))
     vfs.clear_session()
     xbmcgui.Dialog().notification(
-        'Navidrome', f"Account: {accounts[selected]['name']}", xbmcgui.NOTIFICATION_INFO)
+        ADDON_NAME, f"Account: {accounts[selected]['name']}", xbmcgui.NOTIFICATION_INFO)
     xbmc.executebuiltin('Container.Refresh')
 
 
@@ -855,7 +856,7 @@ def library_sync_enabled():
 def sync_library_action(remove=False):
     """Copy the Navidrome library into Kodi's Music library, or take it out."""
     progress = xbmcgui.DialogProgressBG()
-    progress.create('Navidrome', 'Removing from Kodi library' if remove else 'Syncing Kodi library')
+    progress.create(ADDON_NAME, 'Removing from Kodi library' if remove else 'Syncing Kodi library')
     try:
         if remove:
             result = library_sync.remove()
@@ -870,11 +871,11 @@ def sync_library_action(remove=False):
     except Exception as exc:
         xbmc.log(f"NAVIDROME SYNC: failed: {exc!r}", xbmc.LOGERROR)
         xbmcgui.Dialog().notification(
-            'Navidrome', f'Library sync failed: {exc}', xbmcgui.NOTIFICATION_ERROR)
+            ADDON_NAME, f'Library sync failed: {exc}', xbmcgui.NOTIFICATION_ERROR)
         return
     finally:
         progress.close()
-    xbmcgui.Dialog().notification('Navidrome', message, xbmcgui.NOTIFICATION_INFO)
+    xbmcgui.Dialog().notification(ADDON_NAME, message, xbmcgui.NOTIFICATION_INFO)
     xbmc.executebuiltin('Container.Refresh')
 
 
@@ -886,7 +887,7 @@ def choose_library():
     folders = api.get_music_folders()
     if not folders:
         xbmcgui.Dialog().notification(
-            'Navidrome', 'Could not load libraries', xbmcgui.NOTIFICATION_ERROR)
+            ADDON_NAME, 'Could not load libraries', xbmcgui.NOTIFICATION_ERROR)
         return
 
     labels = ['All libraries'] + [f.get('name') or str(f.get('id')) for f in folders]
@@ -911,7 +912,7 @@ def list_playlist_tracks(playlist_id):
 
     if not playlist:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Failed to load playlist',
             xbmcgui.NOTIFICATION_ERROR
         )
@@ -945,7 +946,7 @@ def search():
 
     if not results:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'No results found',
             xbmcgui.NOTIFICATION_INFO
         )
@@ -998,14 +999,14 @@ def star_item(item_id, item_type, item_name):
 
     if api.star(item_id, item_type):
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             f'Starred: {item_name}',
             xbmcgui.NOTIFICATION_INFO
         )
         xbmc.executebuiltin('Container.Refresh')
     else:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Failed to star item',
             xbmcgui.NOTIFICATION_ERROR
         )
@@ -1019,14 +1020,14 @@ def unstar_item(item_id, item_type, item_name):
 
     if api.unstar(item_id, item_type):
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             f'Unstarred: {item_name}',
             xbmcgui.NOTIFICATION_INFO
         )
         xbmc.executebuiltin('Container.Refresh')
     else:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Failed to unstar item',
             xbmcgui.NOTIFICATION_ERROR
         )
@@ -1048,14 +1049,14 @@ def set_rating_dialog(item_id, item_type, item_name):
     if api.set_rating(item_id, selected):
         message = 'Rating cleared' if selected == 0 else f'Rated {selected}/5'
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             f'{message}: {item_name}',
             xbmcgui.NOTIFICATION_INFO
         )
         xbmc.executebuiltin('Container.Refresh')
     else:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'Failed to set rating',
             xbmcgui.NOTIFICATION_ERROR
         )
@@ -1077,7 +1078,7 @@ def add_to_playlist_dialog(track_id, track_name):
             result = api.create_playlist(playlist_name, [track_id])
             if result:
                 xbmcgui.Dialog().notification(
-                    'Navidrome',
+                    ADDON_NAME,
                     f'Created playlist: {playlist_name}',
                     xbmcgui.NOTIFICATION_INFO
                 )
@@ -1098,7 +1099,7 @@ def add_to_playlist_dialog(track_id, track_name):
             result = api.create_playlist(playlist_name, [track_id])
             if result:
                 xbmcgui.Dialog().notification(
-                    'Navidrome',
+                    ADDON_NAME,
                     f'Added to new playlist: {playlist_name}',
                     xbmcgui.NOTIFICATION_INFO
                 )
@@ -1108,13 +1109,13 @@ def add_to_playlist_dialog(track_id, track_name):
         playlist_id = playlist.get('id')
         if api.update_playlist(playlist_id, [track_id]):
             xbmcgui.Dialog().notification(
-                'Navidrome',
+                ADDON_NAME,
                 f'Added to: {playlist.get("name")}',
                 xbmcgui.NOTIFICATION_INFO
             )
         else:
             xbmcgui.Dialog().notification(
-                'Navidrome',
+                ADDON_NAME,
                 'Failed to add to playlist',
                 xbmcgui.NOTIFICATION_ERROR
             )
@@ -1130,7 +1131,7 @@ def list_genres():
 
     if not genres:
         xbmcgui.Dialog().notification(
-            'Navidrome',
+            ADDON_NAME,
             'No genres found',
             xbmcgui.NOTIFICATION_INFO
         )
@@ -1308,7 +1309,7 @@ def download_track_action(track_id, track_name):
 
     cache = get_cache()
     progress = xbmcgui.DialogProgressBG()
-    progress.create('Navidrome', f'Downloading {track_name}')
+    progress.create(ADDON_NAME, f'Downloading {track_name}')
     try:
         track = resolve_track(api, track_id)
         ok = download_track(api, cache, track, progress, track_name or '')
@@ -1318,11 +1319,11 @@ def download_track_action(track_id, track_name):
     if ok:
         cache.prune()
         xbmcgui.Dialog().notification(
-            'Navidrome', f'Downloaded: {track_name}', xbmcgui.NOTIFICATION_INFO)
+            ADDON_NAME, f'Downloaded: {track_name}', xbmcgui.NOTIFICATION_INFO)
         xbmc.executebuiltin('Container.Refresh')
     else:
         xbmcgui.Dialog().notification(
-            'Navidrome', f'Download failed: {track_name}', xbmcgui.NOTIFICATION_ERROR)
+            ADDON_NAME, f'Download failed: {track_name}', xbmcgui.NOTIFICATION_ERROR)
 
 
 def download_many(tracks, heading):
@@ -1333,13 +1334,13 @@ def download_many(tracks, heading):
     tracks = [t for t in tracks if t.get('id')]
     if not tracks:
         xbmcgui.Dialog().notification(
-            'Navidrome', 'Nothing to download', xbmcgui.NOTIFICATION_INFO)
+            ADDON_NAME, 'Nothing to download', xbmcgui.NOTIFICATION_INFO)
         return
 
     cache = get_cache()
     monitor = xbmc.Monitor()
     progress = xbmcgui.DialogProgressBG()
-    progress.create('Navidrome', heading)
+    progress.create(ADDON_NAME, heading)
 
     done = 0
     try:
@@ -1355,7 +1356,7 @@ def download_many(tracks, heading):
 
     cache.prune()
     xbmcgui.Dialog().notification(
-        'Navidrome',
+        ADDON_NAME,
         f'Downloaded {done}/{len(tracks)} tracks',
         xbmcgui.NOTIFICATION_INFO
     )
@@ -1369,7 +1370,7 @@ def download_album_action(album_id, album_name):
     album = api.get_album(album_id)
     if not album:
         xbmcgui.Dialog().notification(
-            'Navidrome', 'Failed to load album', xbmcgui.NOTIFICATION_ERROR)
+            ADDON_NAME, 'Failed to load album', xbmcgui.NOTIFICATION_ERROR)
         return
     download_many(album.get('song', []), f'Downloading {album_name}')
 
@@ -1381,7 +1382,7 @@ def download_playlist_action(playlist_id, playlist_name):
     playlist = api.get_playlist(playlist_id)
     if not playlist:
         xbmcgui.Dialog().notification(
-            'Navidrome', 'Failed to load playlist', xbmcgui.NOTIFICATION_ERROR)
+            ADDON_NAME, 'Failed to load playlist', xbmcgui.NOTIFICATION_ERROR)
         return
     download_many(playlist.get('entry', []), f'Downloading {playlist_name}')
 
@@ -1389,7 +1390,7 @@ def download_playlist_action(playlist_id, playlist_name):
 def remove_download_action(track_id, track_name):
     get_cache().remove(track_id)
     xbmcgui.Dialog().notification(
-        'Navidrome', f'Removed download: {track_name}', xbmcgui.NOTIFICATION_INFO)
+        ADDON_NAME, f'Removed download: {track_name}', xbmcgui.NOTIFICATION_INFO)
     xbmc.executebuiltin('Container.Refresh')
 
 
@@ -1400,7 +1401,7 @@ def list_offline():
 
     if not entries:
         xbmcgui.Dialog().notification(
-            'Navidrome', 'No offline tracks', xbmcgui.NOTIFICATION_INFO)
+            ADDON_NAME, 'No offline tracks', xbmcgui.NOTIFICATION_INFO)
         xbmcplugin.endOfDirectory(ADDON_HANDLE, cacheToDisc=False)
         return
 
@@ -1426,14 +1427,14 @@ def clear_cache_action():
     cache = get_cache()
     used_mb = cache.total_size() / (1024 * 1024)
     if not xbmcgui.Dialog().yesno(
-        'Navidrome',
+        ADDON_NAME,
         f'Delete all offline tracks? ({used_mb:.1f} MB)'
     ):
         return
     cache.clear()
     vfs.clear_session()
     xbmcgui.Dialog().notification(
-        'Navidrome', 'Offline cache cleared', xbmcgui.NOTIFICATION_INFO)
+        ADDON_NAME, 'Offline cache cleared', xbmcgui.NOTIFICATION_INFO)
 
 
 def play_track(track_id):

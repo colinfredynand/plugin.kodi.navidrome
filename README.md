@@ -7,12 +7,17 @@
 *   **Music Streaming**: Stream your entire music library from Navidrome to Kodi.
 *   **Browsing**:
     *   **Albums**: Browse by All, Random, Favourites, Top Rated, Recently Added, Recently Played, and Most Played.
-    *   **Artists**: Browse all artists with cover art.
+    *   **Artists**: Browse all artists with cover art, plus each artist's
+        **Top Songs** (needs Last.fm configured on the server).
     *   **Songs**: Browse individual tracks.
     *   **Genres**: Browse albums and songs by genre.
     *   **Playlists**: Access and play your existing Navidrome playlists.
     *   **Radios**: Listen to internet radio stations configured in Navidrome.
 *   **Search**: Search for Artists, Albums, and Songs.
+*   **Multiple accounts**: Configure up to 3 accounts (different users or
+    servers) and switch between them from the main menu.
+*   **Multiple libraries**: On a Navidrome server with several libraries, pick
+    one (or all) from the **Library** entry on the main menu.
 *   **Library Management**:
     *   **Star/Unstar**: Mark albums and songs as favourites directly from Kodi.
     *   **Ratings**: Set a 0-5 star rating on any song, album or artist from the
@@ -22,7 +27,9 @@
     local cache built on Kodi's Virtual File System (`xbmcvfs`), browse them under
     **Offline**, and play them with the server unreachable. Playback transparently
     prefers a cached copy over the network stream.
-*   **Scrobbling**: Fully functional scrobbling and "Now Playing" status updates to your Navidrome server.
+*   **Scrobbling**: Every track you play is scrobbled, including when a
+    playlist advances on its own, and "Now Playing" on the server shows when
+    playback is paused or stopped (Navidrome 0.62+).
 *   **Transcoding**: Supports server-side transcoding with configurable bitrates and formats (MP3, etc.) for bandwidth management.
 *   **HTTPS**: Works with public certificates, a private CA, or a self-signed
     certificate.
@@ -45,6 +52,8 @@ After installation, you must configure the addon to connect to your Navidrome se
     *   **Server URL**: The full URL to your Navidrome instance (e.g., `https://music.mydomain.com` or `http://192.168.1.10:4533`).
     *   **Username**: Your Navidrome username.
     *   **Password**: Your Navidrome password.
+    *   More accounts go under **More accounts**; pick the one in use with
+        **Active account** or from the main menu once two are filled in.
 4.  (Optional) Configure **TLS**, under the same **Server** tab:
     *   **Verify TLS certificate** (default: on). Leave this on whenever you can.
     *   **CA certificate**: point this at the CA (or the certificate itself) that
@@ -69,14 +78,24 @@ After installation, you must configure the addon to connect to your Navidrome se
         larger than 500 are assembled from several requests, because that is the
         most the server will return at once.
 
+## Requirements
+
+Kodi 19 (Matrix) or newer. Tested against the Navidrome 0.64 API; older
+servers work, and features that need a newer server are skipped.
+
 ## Known Issues & Roadmap
+
+*   **Not in Kodi's Music library**: the music is browsed through
+    **Music > Add-ons > Navidrome**. Adding the addon as a music *source* and
+    scanning it does not work, and it is not supported: Kodi's music scanner
+    cannot read tags from a streaming add-on. Proper library integration needs
+    a sync into Kodi's music database and is on the roadmap.
 
 *   **VFS Implementation**: *Done.* Playback now resolves through the plugin
     (`setResolvedUrl`) rather than handing Kodi a bare HTTP URL, and everything
     the addon stores — the offline media cache, its metadata sidecars, the cached
     login and the now-playing marker — goes through `xbmcvfs`, so it works on
     platforms where the addon data directory is not a plain local path.
-*   **Show Track Numbers in Title**: the setting exists but is not wired up yet.
 
 ## Development
 

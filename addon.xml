@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <addon id="plugin.kodi.navidrome"
        name="Navidrome"
-       version="0.6.0"
+       version="0.7.0"
        provider-name="colinfredynand">
 
     <requires>
@@ -20,6 +20,15 @@
         <description lang="en_GB">Browse and play music from Navidrome with scrobbling support</description>
         <platform>all</platform>
         <license>GPL-3.0-only</license>
+        <source>https://github.com/colinfredynand/plugin.kodi.navidrome</source>
+        <news>v0.7.0 (Navidrome 0.64)
+- Fix: every track of a playlist is scrobbled, not only the first (#8)
+- Fix: now-playing uses the playbackReport extension correctly (pause/stop shown)
+- Fix: Similar Songs reads sonicSimilarity results correctly
+- New: up to 3 accounts with a main-menu switcher (#7)
+- New: Navidrome multi-library picker
+- New: Top Songs per artist
+- New: "Show Track Numbers in Title" now works</news>
         <assets>
             <icon>icon.png</icon>
         </assets>

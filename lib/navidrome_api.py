@@ -15,10 +15,17 @@ from lib import vfs
 
 
 # OpenSubsonic extension names
-EXT_SONIC_SIMILARITY = 'sonicSimilarity'   # Navidrome v0.62.0 (plugin-needed)
-EXT_PLAYBACK_REPORT = 'playbackReport'     # Navidrome v0.62.0
-EXT_SONG_LYRICS = 'songLyrics'
-EXT_TRANSCODE_OFFSET = 'transcodeOffset'
+EXT_SONIC_SIMILARITY = 'sonicSimilarity'     # Navidrome v0.62.0 (plugin-needed)
+EXT_PLAYBACK_REPORT = 'playbackReport'       # Navidrome v0.62.0
+EXT_TOP_SONGS_BY_ID = 'topSongsByArtistId'   # Navidrome v0.64.0
+
+# Subsonic endpoints that accept musicFolderId (Navidrome multi-library).
+FOLDER_ENDPOINTS = {
+    'getArtists', 'getAlbumList2', 'search3', 'getSongsByGenre',
+    'getStarred2', 'getRandomSongs',
+}
+
+ACCOUNT_SLOTS = 3
 
 # Both Navidrome's native REST layer and the Subsonic endpoints refuse to
 # return more than this many rows in a single response, whatever we ask for.
@@ -59,14 +66,51 @@ def _setting_choice(addon, setting_id, choices, default):
     return default
 
 
+def slot_suffix(slot):
+    # Slot 1 keeps the original setting ids so existing installs need no migration.
+    return '' if slot == 1 else f'_{slot}'
+
+
+def active_slot(addon):
+    try:
+        slot = int(addon.getSetting('active_account') or 1)
+    except ValueError:
+        slot = 1
+    return slot if 1 <= slot <= ACCOUNT_SLOTS else 1
+
+
+def account_settings(addon, slot):
+    """Connection settings of one account slot."""
+    sfx = slot_suffix(slot)
+    server_url = (addon.getSetting(f'server_url{sfx}') or '').strip()
+    username = (addon.getSetting(f'username{sfx}') or '').strip()
+    return {
+        'slot': slot,
+        'name': (addon.getSetting(f'account_name{sfx}') or '').strip()
+                or (f'{username}@{server_url}' if server_url and username else f'Account {slot}'),
+        'server_url': server_url,
+        'username': username,
+        'password': addon.getSetting(f'password{sfx}') or '',
+        'music_folder_id': (addon.getSetting(f'music_folder{sfx}') or '').strip(),
+        'music_folder_name': (addon.getSetting(f'music_folder_name{sfx}') or '').strip(),
+    }
+
+
+def account_configured(account):
+    return bool(account['server_url'] and account['username'] and account['password'])
+
+
 class NavidromeAPI:
-    def __init__(self, server_url, username, password):
+    def __init__(self, server_url, username, password, music_folder_id=None):
         self.server_url = server_url.rstrip('/')
         self.username = username
         self.password = password
         self.client_name = "KodiNavidrome"
         self.api_version = "1.16.1"
         self.user_agent = "KodiNavidrome/1.0 (+https://kodi.tv)"
+        # Library filter; when set, the native API is skipped because only the
+        # Subsonic endpoints document musicFolderId.
+        self.music_folder_id = str(music_folder_id) if music_folder_id else None
 
         # Get settings of addon
         addon = xbmcaddon.Addon()
@@ -270,7 +314,7 @@ class NavidromeAPI:
         and re-authenticates + retries once on 401.
         Returns parsed JSON (usually a list) or None to signal fallback.
         """
-        if not self.native_token:
+        if not self.native_token or self.music_folder_id:
             return None
 
         try:
@@ -350,6 +394,8 @@ class NavidromeAPI:
 
     def _make_request(self, endpoint, params=None):
         """Make a Subsonic API request and return the subsonic-response payload."""
+        if self.music_folder_id and endpoint in FOLDER_ENDPOINTS:
+            params = dict(params or {}, musicFolderId=self.music_folder_id)
         try:
             url = self._build_url(endpoint, params)
             if self.enable_debug:
@@ -737,57 +783,40 @@ class NavidromeAPI:
     def get_sonic_similar_tracks(self, song_id, count=50):
         """
         Audio-based similar tracks via the OpenSubsonic 'sonicSimilarity'
-        extension (Navidrome v0.62.0). Requires a plugin (e.g. AudioMuse-AI)
-        that provides the capability; otherwise returns []. Falls back to the
-        metadata-based Instant Mix when the extension is unavailable.
-
-        NOTE: endpoint params are best-effort pending official spec; adjust
-        if the server rejects them.
+        extension (Navidrome v0.62+, needs a plugin such as AudioMuse-AI).
+        Falls back to the metadata-based Instant Mix.
         """
-        if not self.has_extension(EXT_SONIC_SIMILARITY):
-            return self.get_similar_songs(song_id, count)
-
-        response = self._make_request('getSonicSimilarTracks', {
-            'id': song_id,
-            'count': count
-        })
-        if response:
-            # Tolerate a few likely container shapes
-            for key in ('sonicSimilarTracks', 'similarSongs2', 'similarSongs'):
-                container = response.get(key)
-                if isinstance(container, dict):
-                    songs = container.get('song') or container.get('track')
-                    if songs is not None:
-                        return songs
-            if isinstance(response.get('song'), list):
-                return response['song']
-        # Graceful degradation
+        if self.has_extension(EXT_SONIC_SIMILARITY):
+            response = self._make_request('getSonicSimilarTracks', {
+                'id': song_id,
+                'count': count
+            })
+            # Spec: top-level sonicMatch array of {entry: Child, similarity}.
+            matches = (response or {}).get('sonicMatch') or []
+            songs = [m['entry'] for m in matches if isinstance(m, dict) and m.get('entry')]
+            if songs:
+                return songs
         return self.get_similar_songs(song_id, count)
 
-    def find_sonic_path(self, from_id, to_id, count=25):
-        """
-        Build a 'sonic path' between two tracks via the 'sonicSimilarity'
-        extension (Navidrome v0.62.0). Returns [] if the extension is absent.
-
-        NOTE: param names are best-effort pending official spec.
-        """
-        if not self.has_extension(EXT_SONIC_SIMILARITY):
+    def get_top_songs(self, artist_id, artist_name, count=50):
+        """Top songs of an artist (Last.fm data); by id on Navidrome v0.64+."""
+        params = {'count': count}
+        if artist_name:
+            params['artist'] = artist_name
+        if artist_id and self.has_extension(EXT_TOP_SONGS_BY_ID):
+            params['id'] = artist_id
+        if 'artist' not in params and 'id' not in params:
             return []
+        response = self._make_request('getTopSongs', params)
+        if response and 'topSongs' in response:
+            return response['topSongs'].get('song', [])
+        return []
 
-        response = self._make_request('findSonicPath', {
-            'from': from_id,
-            'to': to_id,
-            'count': count
-        })
-        if response:
-            for key in ('sonicPath', 'similarSongs2', 'similarSongs'):
-                container = response.get(key)
-                if isinstance(container, dict):
-                    songs = container.get('song') or container.get('track')
-                    if songs is not None:
-                        return songs
-            if isinstance(response.get('song'), list):
-                return response['song']
+    # Libraries (Navidrome multi-library)
+    def get_music_folders(self):
+        response = self._make_request('getMusicFolders')
+        if response and 'musicFolders' in response:
+            return response['musicFolders'].get('musicFolder', [])
         return []
 
     # Radios
@@ -840,37 +869,38 @@ class NavidromeAPI:
             return None
 
     # Playback reporting / annotation — Subsonic/OpenSubsonic
-    def report_playback(self, track_id, submission=True):
+    def report_state(self, track_id, state, position_ms=0):
         """
-        Report playback. Prefers the OpenSubsonic 'playbackReport' extension
-        (Navidrome v0.62.0) and falls back to classic scrobble otherwise.
-        submission=False => 'now playing'; submission=True => played.
+        Now-playing state: starting, playing, paused or stopped.
+
+        Uses the OpenSubsonic 'playbackReport' extension (Navidrome v0.62+)
+        with ignoreScrobble, so plays are only counted by scrobble(). Older
+        servers get a classic submission=false scrobble for start/resume.
         """
-        now_ms = int(time.time() * 1000)
         if self.has_extension(EXT_PLAYBACK_REPORT):
             response = self._make_request('reportPlayback', {
-                'id': track_id,
-                'submission': 'true' if submission else 'false',
-                'time': now_ms
+                'mediaId': track_id,
+                'mediaType': 'song',
+                'positionMs': max(0, int(position_ms)),
+                'state': state,
+                'ignoreScrobble': 'true',
             })
             if response is not None:
                 return True
-            # fall through to scrobble on failure
+        if state in ('starting', 'playing'):
+            return self._make_request('scrobble', {
+                'id': track_id, 'submission': 'false'
+            }) is not None
+        return False
 
+    def scrobble(self, track_id, started_at=None):
+        """Register a play; started_at (epoch seconds) is when playback began."""
         response = self._make_request('scrobble', {
             'id': track_id,
-            'submission': 'true' if submission else 'false',
-            'time': now_ms
+            'submission': 'true',
+            'time': int((started_at or time.time()) * 1000)
         })
         return response is not None
-
-    def update_now_playing(self, track_id):
-        """Update now playing status (kept for API compatibility)."""
-        return self.report_playback(track_id, submission=False)
-
-    def scrobble(self, track_id):
-        """Scrobble a track / mark as played (kept for API compatibility)."""
-        return self.report_playback(track_id, submission=True)
 
     def star(self, item_id, item_type='song'):
         """Star an item (song, album, or artist)."""

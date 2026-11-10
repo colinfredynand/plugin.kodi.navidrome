@@ -1,11 +1,27 @@
 <settings>
     <category label="Server">
+        <setting id="active_account" type="labelenum" label="Active account" values="1|2|3" default="1" />
+        <setting type="lsep" label="Account 1" />
+        <setting id="account_name" type="text" label="Name (optional)" default="" />
         <setting id="server_url" type="text" label="Server URL" default="http://localhost:4533" />
         <setting id="username" type="text" label="Username" default="" />
         <setting id="password" type="text" label="Password" option="hidden" default="" />
         <setting type="lsep" label="TLS" />
         <setting id="verify_ssl" type="bool" label="Verify TLS certificate" default="true" />
         <setting id="ca_cert_path" type="file" label="CA certificate (for a private/self-signed CA)" default="" enable="eq(-1,true)" />
+    </category>
+
+    <category label="More accounts">
+        <setting type="lsep" label="Account 2" />
+        <setting id="account_name_2" type="text" label="Name (optional)" default="" />
+        <setting id="server_url_2" type="text" label="Server URL" default="" />
+        <setting id="username_2" type="text" label="Username" default="" />
+        <setting id="password_2" type="text" label="Password" option="hidden" default="" />
+        <setting type="lsep" label="Account 3" />
+        <setting id="account_name_3" type="text" label="Name (optional)" default="" />
+        <setting id="server_url_3" type="text" label="Server URL" default="" />
+        <setting id="username_3" type="text" label="Username" default="" />
+        <setting id="password_3" type="text" label="Password" option="hidden" default="" />
     </category>
 
     <category label="Playback">
@@ -34,5 +50,12 @@
     <category label="Advanced">
         <setting id="api_timeout" type="slider" label="API Timeout (seconds)" default="10" range="5,1,30" />
         <setting id="enable_debug" type="bool" label="Enable Debug Logging" default="false" />
+        <!-- Library picked from the main menu, per account -->
+        <setting id="music_folder" type="text" default="" visible="false" />
+        <setting id="music_folder_name" type="text" default="" visible="false" />
+        <setting id="music_folder_2" type="text" default="" visible="false" />
+        <setting id="music_folder_name_2" type="text" default="" visible="false" />
+        <setting id="music_folder_3" type="text" default="" visible="false" />
+        <setting id="music_folder_name_3" type="text" default="" visible="false" />
     </category>
 </settings>

@@ -8,7 +8,10 @@ import xbmcplugin
 
 # Import our API wrapper
 from lib import vfs
-from lib.navidrome_api import NavidromeAPI
+from lib.navidrome_api import (
+    ACCOUNT_SLOTS, NavidromeAPI, account_configured, account_settings, active_slot,
+    slot_suffix,
+)
 
 ADDON = xbmcaddon.Addon()
 ADDON_HANDLE = int(sys.argv[1])
@@ -29,13 +32,14 @@ RATING_LABELS = [
 ]
 
 
-def get_api():
-    """Get configured API instance"""
-    server_url = ADDON.getSetting('server_url')
-    username = ADDON.getSetting('username')
-    password = ADDON.getSetting('password')
+def current_account():
+    return account_settings(ADDON, active_slot(ADDON))
 
-    if not server_url or not username or not password:
+
+def get_api():
+    """API instance for the active account and library."""
+    account = current_account()
+    if not account_configured(account):
         xbmcgui.Dialog().notification(
             'Navidrome',
             'Please configure server settings',
@@ -43,7 +47,8 @@ def get_api():
         )
         return None
 
-    return NavidromeAPI(server_url, username, password)
+    return NavidromeAPI(account['server_url'], account['username'],
+                        account['password'], account['music_folder_id'])
 
 
 def get_page_size():
@@ -101,6 +106,14 @@ def root_menu():
 
     if offline_enabled():
         items.append(("Offline", {"action": "offline"}))
+
+    account = current_account()
+    items.append((f"Library: {account['music_folder_name'] or 'All'}",
+                  {"action": "choose_library"}))
+    configured = [s for s in range(1, ACCOUNT_SLOTS + 1)
+                  if account_configured(account_settings(ADDON, s))]
+    if len(configured) > 1:
+        items.append((f"Account: {account['name']}", {"action": "switch_account"}))
 
     for label, query in items:
         url = build_url(query)
@@ -286,9 +299,17 @@ def list_artist_albums(artist_id):
         xbmcplugin.endOfDirectory(ADDON_HANDLE)
         return
 
-    albums = artist.get('album', [])
+    li = xbmcgui.ListItem(label='Top Songs')
+    li.setProperty('SpecialSort', 'top')
+    xbmcplugin.addDirectoryItem(
+        handle=ADDON_HANDLE,
+        url=build_url({"action": "top_songs", "id": artist_id,
+                       "name": artist.get('name', '')}),
+        listitem=li,
+        isFolder=True
+    )
 
-    for album in albums:
+    for album in artist.get('album', []):
         add_album_item(api, album)
 
     xbmcplugin.addSortMethod(ADDON_HANDLE, xbmcplugin.SORT_METHOD_ALBUM)
@@ -458,8 +479,10 @@ def add_track_item(api, track, cache=None):
     # that is what lets an offline copy be substituted for the HTTP stream.
     play_url = build_url({"action": "play_track", "id": track_id})
 
-    # Create list item
-    li = xbmcgui.ListItem(label=title)
+    label = title
+    if track_number and ADDON.getSettingBool('show_track_numbers'):
+        label = f"{int(track_number):02d}. {title}"
+    li = xbmcgui.ListItem(label=label)
 
     # Use modern getMusicInfoTag() instead of deprecated setInfo()
     music_tag = li.getMusicInfoTag()
@@ -780,6 +803,66 @@ def list_similar_songs(track_id, track_name=''):
 
     xbmcplugin.setContent(ADDON_HANDLE, 'songs')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
+
+
+def list_top_songs(artist_id, artist_name):
+    """Most played songs of an artist, as known to Last.fm via the server."""
+    api = get_api()
+    if not api:
+        return
+
+    songs = api.get_top_songs(artist_id, artist_name)
+    if not songs:
+        empty_directory('No top songs (the server needs Last.fm configured)')
+        return
+
+    cache = get_cache() if offline_enabled() else None
+    for track in songs:
+        add_track_item(api, track, cache)
+
+    xbmcplugin.setContent(ADDON_HANDLE, 'songs')
+    xbmcplugin.endOfDirectory(ADDON_HANDLE)
+
+
+def switch_account():
+    """Pick which configured account the addon browses and scrobbles as."""
+    accounts = [account_settings(ADDON, s) for s in range(1, ACCOUNT_SLOTS + 1)]
+    accounts = [a for a in accounts if account_configured(a)]
+    if not accounts:
+        return
+    current = active_slot(ADDON)
+    labels = [('* ' if a['slot'] == current else '') + a['name'] for a in accounts]
+    selected = xbmcgui.Dialog().select('Switch account', labels)
+    if selected < 0 or accounts[selected]['slot'] == current:
+        return
+    ADDON.setSetting('active_account', str(accounts[selected]['slot']))
+    vfs.clear_session()
+    xbmcgui.Dialog().notification(
+        'Navidrome', f"Account: {accounts[selected]['name']}", xbmcgui.NOTIFICATION_INFO)
+    xbmc.executebuiltin('Container.Refresh')
+
+
+def choose_library():
+    """Restrict browsing to one Navidrome library (or all of them)."""
+    api = get_api()
+    if not api:
+        return
+    folders = api.get_music_folders()
+    if not folders:
+        xbmcgui.Dialog().notification(
+            'Navidrome', 'Could not load libraries', xbmcgui.NOTIFICATION_ERROR)
+        return
+
+    labels = ['All libraries'] + [f.get('name') or str(f.get('id')) for f in folders]
+    selected = xbmcgui.Dialog().select('Library', labels)
+    if selected < 0:
+        return
+
+    sfx = slot_suffix(active_slot(ADDON))
+    folder = folders[selected - 1] if selected else {}
+    ADDON.setSetting(f'music_folder{sfx}', str(folder.get('id', '')))
+    ADDON.setSetting(f'music_folder_name{sfx}', folder.get('name', '') if folder else '')
+    xbmc.executebuiltin('Container.Refresh')
 
 
 def list_playlist_tracks(playlist_id):
@@ -1462,6 +1545,12 @@ def router(paramstring):
         clear_cache_action()
     elif action == "play_track":
         play_track(params.get("id"))
+    elif action == "top_songs":
+        list_top_songs(params.get("id"), params.get("name", ''))
+    elif action == "switch_account":
+        switch_account()
+    elif action == "choose_library":
+        choose_library()
     else:
         xbmc.log(f"Unknown action: {action}", xbmc.LOGWARNING)
         root_menu()

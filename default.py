@@ -7,12 +7,16 @@ import xbmcgui
 import xbmcplugin
 
 # Import our API wrapper
-from lib import vfs
-from lib.navidrome_api import NavidromeAPI
+from lib import library_sync, vfs
+from lib.navidrome_api import (
+    ACCOUNT_SLOTS, NavidromeAPI, account_configured, account_settings, active_slot,
+    slot_suffix,
+)
 
 ADDON = xbmcaddon.Addon()
 ADDON_HANDLE = int(sys.argv[1])
-BASE_URL = sys.argv[0]
+# Fixed, not sys.argv[0]: library songs are invoked through the /library/ path.
+BASE_URL = 'plugin://plugin.kodi.navidrome/'
 
 PAGE_SIZES = [50, 100, 200, 500, 1000]
 DEFAULT_PAGE_SIZE = 500
@@ -29,13 +33,14 @@ RATING_LABELS = [
 ]
 
 
-def get_api():
-    """Get configured API instance"""
-    server_url = ADDON.getSetting('server_url')
-    username = ADDON.getSetting('username')
-    password = ADDON.getSetting('password')
+def current_account():
+    return account_settings(ADDON, active_slot(ADDON))
 
-    if not server_url or not username or not password:
+
+def get_api():
+    """API instance for the active account and library."""
+    account = current_account()
+    if not account_configured(account):
         xbmcgui.Dialog().notification(
             'Navidrome',
             'Please configure server settings',
@@ -43,7 +48,8 @@ def get_api():
         )
         return None
 
-    return NavidromeAPI(server_url, username, password)
+    return NavidromeAPI(account['server_url'], account['username'],
+                        account['password'], account['music_folder_id'])
 
 
 def get_page_size():
@@ -115,7 +121,23 @@ def root_menu():
             isFolder=True,
         )
 
-    xbmcplugin.endOfDirectory(ADDON_HANDLE)
+    # Pickers open a dialog instead of a folder, so they are not folders.
+    account = current_account()
+    pickers = [(f"Library: {account['music_folder_name'] or 'All'}", "choose_library")]
+    configured = [s for s in range(1, ACCOUNT_SLOTS + 1)
+                  if account_configured(account_settings(ADDON, s))]
+    if len(configured) > 1:
+        pickers.append((f"Account: {account['name']}", "switch_account"))
+    for label, action in pickers:
+        xbmcplugin.addDirectoryItem(
+            handle=ADDON_HANDLE,
+            url=build_url({"action": action}),
+            listitem=xbmcgui.ListItem(label=label),
+            isFolder=False,
+        )
+
+    # The labels above change with settings: never serve this from cache.
+    xbmcplugin.endOfDirectory(ADDON_HANDLE, cacheToDisc=False)
 
 
 def albums_menu():
@@ -286,9 +308,17 @@ def list_artist_albums(artist_id):
         xbmcplugin.endOfDirectory(ADDON_HANDLE)
         return
 
-    albums = artist.get('album', [])
+    li = xbmcgui.ListItem(label='Top Songs')
+    li.setProperty('SpecialSort', 'top')
+    xbmcplugin.addDirectoryItem(
+        handle=ADDON_HANDLE,
+        url=build_url({"action": "top_songs", "id": artist_id,
+                       "name": artist.get('name', '')}),
+        listitem=li,
+        isFolder=True
+    )
 
-    for album in albums:
+    for album in artist.get('album', []):
         add_album_item(api, album)
 
     xbmcplugin.addSortMethod(ADDON_HANDLE, xbmcplugin.SORT_METHOD_ALBUM)
@@ -410,15 +440,8 @@ def list_album_tracks(album_id):
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
 
-def mime_type_for(api, suffix):
-    """Best guess MIME type so Kodi picks PAPlayer rather than sniffing."""
-    if api is not None and api.enable_transcoding:
-        return {
-            'mp3': 'audio/mpeg',
-            'opus': 'audio/ogg',
-            'aac': 'audio/aac',
-        }.get(api.transcode_format, 'audio/mpeg')
-
+def mime_type_for(suffix):
+    """MIME type of a format, so Kodi need not ask the server for it."""
     return {
         'flac': 'audio/flac',
         'mp3': 'audio/mpeg',
@@ -458,8 +481,10 @@ def add_track_item(api, track, cache=None):
     # that is what lets an offline copy be substituted for the HTTP stream.
     play_url = build_url({"action": "play_track", "id": track_id})
 
-    # Create list item
-    li = xbmcgui.ListItem(label=title)
+    label = title
+    if track_number and ADDON.getSettingBool('show_track_numbers'):
+        label = f"{int(track_number):02d}. {title}"
+    li = xbmcgui.ListItem(label=label)
 
     # Use modern getMusicInfoTag() instead of deprecated setInfo()
     music_tag = li.getMusicInfoTag()
@@ -468,6 +493,7 @@ def add_track_item(api, track, cache=None):
     music_tag.setAlbum(album_name)
     music_tag.setDuration(duration)  # Now it's an int
     music_tag.setTrack(track_number)
+    music_tag.setDisc(int(track.get('discNumber') or 1))
     if year > 0:  # Only set year if valid
         music_tag.setYear(year)
     music_tag.setMediaType('song')
@@ -476,7 +502,7 @@ def add_track_item(api, track, cache=None):
         music_tag.setUserRating(rating * 2)
 
     # Set MIME type to ensure PAPlayer is used
-    li.setMimeType(mime_type_for(api, suffix))
+    li.setMimeType(mime_type_for(suffix))
 
     # Set ContentLookup to False to help with buffering
     li.setContentLookup(False)
@@ -780,6 +806,99 @@ def list_similar_songs(track_id, track_name=''):
 
     xbmcplugin.setContent(ADDON_HANDLE, 'songs')
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
+
+
+def list_top_songs(artist_id, artist_name):
+    """Most played songs of an artist, as known to Last.fm via the server."""
+    api = get_api()
+    if not api:
+        return
+
+    songs = api.get_top_songs(artist_id, artist_name)
+    if not songs:
+        empty_directory('No top songs (the server needs Last.fm configured)')
+        return
+
+    cache = get_cache() if offline_enabled() else None
+    for track in songs:
+        add_track_item(api, track, cache)
+
+    xbmcplugin.setContent(ADDON_HANDLE, 'songs')
+    xbmcplugin.endOfDirectory(ADDON_HANDLE)
+
+
+def switch_account():
+    """Pick which configured account the addon browses and scrobbles as."""
+    accounts = [account_settings(ADDON, s) for s in range(1, ACCOUNT_SLOTS + 1)]
+    accounts = [a for a in accounts if account_configured(a)]
+    if not accounts:
+        return
+    current = active_slot(ADDON)
+    labels = [('* ' if a['slot'] == current else '') + a['name'] for a in accounts]
+    selected = xbmcgui.Dialog().select('Switch account', labels)
+    if selected < 0 or accounts[selected]['slot'] == current:
+        return
+    ADDON.setSetting('active_account', str(accounts[selected]['slot']))
+    vfs.clear_session()
+    xbmcgui.Dialog().notification(
+        'Navidrome', f"Account: {accounts[selected]['name']}", xbmcgui.NOTIFICATION_INFO)
+    xbmc.executebuiltin('Container.Refresh')
+
+
+def library_sync_enabled():
+    try:
+        return ADDON.getSettingBool('library_sync')
+    except Exception:
+        return False
+
+
+def sync_library_action(remove=False):
+    """Copy the Navidrome library into Kodi's Music library, or take it out."""
+    progress = xbmcgui.DialogProgressBG()
+    progress.create('Navidrome', 'Removing from Kodi library' if remove else 'Syncing Kodi library')
+    try:
+        if remove:
+            result = library_sync.remove()
+            message = f"Removed {result['removed']} songs from Kodi library"
+        else:
+            api = get_api()
+            if not api:
+                return
+            result = library_sync.sync(
+                api, lambda count: progress.update(50, message=f'{count} songs'))
+            message = f"Kodi library: {result['songs']} songs, {result['albums']} albums"
+    except Exception as exc:
+        xbmc.log(f"NAVIDROME SYNC: failed: {exc!r}", xbmc.LOGERROR)
+        xbmcgui.Dialog().notification(
+            'Navidrome', f'Library sync failed: {exc}', xbmcgui.NOTIFICATION_ERROR)
+        return
+    finally:
+        progress.close()
+    xbmcgui.Dialog().notification('Navidrome', message, xbmcgui.NOTIFICATION_INFO)
+    xbmc.executebuiltin('Container.Refresh')
+
+
+def choose_library():
+    """Restrict browsing to one Navidrome library (or all of them)."""
+    api = get_api()
+    if not api:
+        return
+    folders = api.get_music_folders()
+    if not folders:
+        xbmcgui.Dialog().notification(
+            'Navidrome', 'Could not load libraries', xbmcgui.NOTIFICATION_ERROR)
+        return
+
+    labels = ['All libraries'] + [f.get('name') or str(f.get('id')) for f in folders]
+    selected = xbmcgui.Dialog().select('Library', labels)
+    if selected < 0:
+        return
+
+    sfx = slot_suffix(active_slot(ADDON))
+    folder = folders[selected - 1] if selected else {}
+    ADDON.setSetting(f'music_folder{sfx}', str(folder.get('id', '')))
+    ADDON.setSetting(f'music_folder_name{sfx}', folder.get('name', '') if folder else '')
+    xbmc.executebuiltin('Container.Refresh')
 
 
 def list_playlist_tracks(playlist_id):
@@ -1137,11 +1256,10 @@ def download_track(api, cache, track, progress=None, heading=''):
     if cache.has(track_id):
         return True
 
-    suffix = api.transcode_format if api.enable_transcoding else (track.get('suffix') or 'mp3')
-
-    response = api.open_stream(track_id)
+    response, fmt = api.open_stream(track_id)
     if response is None:
         return False
+    suffix = fmt or track.get('suffix') or 'mp3'
 
     handle, path = cache.open_writer(track_id, suffix)
     if handle is None:
@@ -1339,7 +1457,7 @@ def play_track(track_id):
         if not api:
             xbmcplugin.setResolvedUrl(ADDON_HANDLE, False, xbmcgui.ListItem())
             return
-        path = api.get_stream_url(track_id)
+        path, suffix = api.get_stream(track_id)
 
     try:
         if ADDON.getSettingBool('enable_debug'):
@@ -1353,8 +1471,8 @@ def play_track(track_id):
         play_item.setContentLookup(False)
         # Only assert a MIME type when it is actually known — for an untranscoded
         # stream the container is whatever the server stored, so let Kodi sniff.
-        if suffix or (api is not None and api.enable_transcoding):
-            play_item.setMimeType(mime_type_for(api, suffix))
+        if suffix:
+            play_item.setMimeType(mime_type_for(suffix))
         play_item.setProperty('navidrome_id', track_id)
 
         xbmcplugin.setResolvedUrl(ADDON_HANDLE, True, play_item)
@@ -1380,7 +1498,17 @@ def router(paramstring):
             limit = None
         return offset, limit
 
-    if action is None:
+    library_path = urllib.parse.unquote(urllib.parse.urlparse(sys.argv[0]).path)
+    if library_path.startswith('/library'):
+        # Kodi's Music library (see lib/library_sync.py): a song there is
+        # /library/<id>.<suffix>; the folder itself is listed by Kodi's
+        # library scanner and must look empty.
+        song_id = library_sync.song_id_from_library_path(library_path)
+        if song_id:
+            play_track(song_id)
+        else:
+            xbmcplugin.endOfDirectory(ADDON_HANDLE, cacheToDisc=False)
+    elif action is None:
         root_menu()
     elif action == "albums_menu":
         albums_menu()
@@ -1462,6 +1590,16 @@ def router(paramstring):
         clear_cache_action()
     elif action == "play_track":
         play_track(params.get("id"))
+    elif action == "top_songs":
+        list_top_songs(params.get("id"), params.get("name", ''))
+    elif action == "switch_account":
+        switch_account()
+    elif action == "choose_library":
+        choose_library()
+    elif action == "sync_library":
+        sync_library_action()
+    elif action == "remove_library":
+        sync_library_action(remove=True)
     else:
         xbmc.log(f"Unknown action: {action}", xbmc.LOGWARNING)
         root_menu()

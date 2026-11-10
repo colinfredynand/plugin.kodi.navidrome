@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <addon id="plugin.kodi.navidrome"
        name="Navidrome"
-       version="0.6.0"
+       version="0.7.0"
        provider-name="colinfredynand">
 
     <requires>
-        <import addon="xbmc.python" version="3.0.0"/>
+        <import addon="xbmc.python" version="3.0.1"/>
     </requires>
 
     <extension point="xbmc.python.pluginsource"
@@ -17,9 +17,24 @@
 
     <extension point="xbmc.addon.metadata">
         <summary lang="en_GB">Navidrome music plugin</summary>
-        <description lang="en_GB">Browse and play music from Navidrome with scrobbling support</description>
+        <description lang="en_GB">Browse and play music from Navidrome, with scrobbling, offline downloads and optional integration into Kodi's Music library</description>
         <platform>all</platform>
         <license>GPL-3.0-only</license>
+        <source>https://github.com/colinfredynand/plugin.kodi.navidrome</source>
+        <news>v0.7.0 (Navidrome 0.64)
+- New: Navidrome music in Kodi's own Music library (#9), off by default
+- New: up to 3 accounts with a main-menu switcher (#7)
+- New: Navidrome multi-library picker, Top Songs per artist
+- Fix: every track of a playlist is scrobbled, not only the first (#8)
+- Fix: offline downloads could not be saved at all
+- Fix: logged in again on every folder, which Navidrome 0.64 rate-limits
+- Fix: now-playing shows pause/stop; Similar Songs uses sonic similarity
+- New: setting to turn the playback report (position, pause, stop) off
+- New: with transcoding on, files already under the bitrate limit are no longer re-encoded (Navidrome 0.64)
+- Fix: with transcoding on, tracks shorter than 4 minutes were never scrobbled
+- Fix: multi-disc albums listed disc 1 and 2 interleaved
+- Fix: Kodi's home screen said the music library was empty after a sync, until a restart
+- Fix: removed Navidrome music left unused genres behind in Kodi's library</news>
         <assets>
             <icon>icon.png</icon>
         </assets>

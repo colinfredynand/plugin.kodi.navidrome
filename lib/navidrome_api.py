@@ -15,10 +15,18 @@ from lib import vfs
 
 
 # OpenSubsonic extension names
-EXT_SONIC_SIMILARITY = 'sonicSimilarity'   # Navidrome v0.62.0 (plugin-needed)
-EXT_PLAYBACK_REPORT = 'playbackReport'     # Navidrome v0.62.0
-EXT_SONG_LYRICS = 'songLyrics'
-EXT_TRANSCODE_OFFSET = 'transcodeOffset'
+EXT_SONIC_SIMILARITY = 'sonicSimilarity'     # Navidrome v0.62.0 (plugin-needed)
+EXT_PLAYBACK_REPORT = 'playbackReport'       # Navidrome v0.62.0
+EXT_TOP_SONGS_BY_ID = 'topSongsByArtistId'   # Navidrome v0.64.0
+EXT_TRANSCODING = 'transcoding'
+
+# Subsonic endpoints that accept musicFolderId (Navidrome multi-library).
+FOLDER_ENDPOINTS = {
+    'getArtists', 'getAlbumList2', 'search3', 'getSongsByGenre',
+    'getStarred2', 'getRandomSongs',
+}
+
+ACCOUNT_SLOTS = 3
 
 # Both Navidrome's native REST layer and the Subsonic endpoints refuse to
 # return more than this many rows in a single response, whatever we ask for.
@@ -59,14 +67,51 @@ def _setting_choice(addon, setting_id, choices, default):
     return default
 
 
+def slot_suffix(slot):
+    # Slot 1 keeps the original setting ids so existing installs need no migration.
+    return '' if slot == 1 else f'_{slot}'
+
+
+def active_slot(addon):
+    try:
+        slot = int(addon.getSetting('active_account') or 1)
+    except ValueError:
+        slot = 1
+    return slot if 1 <= slot <= ACCOUNT_SLOTS else 1
+
+
+def account_settings(addon, slot):
+    """Connection settings of one account slot."""
+    sfx = slot_suffix(slot)
+    server_url = (addon.getSetting(f'server_url{sfx}') or '').strip()
+    username = (addon.getSetting(f'username{sfx}') or '').strip()
+    return {
+        'slot': slot,
+        'name': (addon.getSetting(f'account_name{sfx}') or '').strip()
+                or (f'{username}@{server_url}' if server_url and username else f'Account {slot}'),
+        'server_url': server_url,
+        'username': username,
+        'password': addon.getSetting(f'password{sfx}') or '',
+        'music_folder_id': (addon.getSetting(f'music_folder{sfx}') or '').strip(),
+        'music_folder_name': (addon.getSetting(f'music_folder_name{sfx}') or '').strip(),
+    }
+
+
+def account_configured(account):
+    return bool(account['server_url'] and account['username'] and account['password'])
+
+
 class NavidromeAPI:
-    def __init__(self, server_url, username, password):
+    def __init__(self, server_url, username, password, music_folder_id=None):
         self.server_url = server_url.rstrip('/')
         self.username = username
         self.password = password
         self.client_name = "KodiNavidrome"
         self.api_version = "1.16.1"
         self.user_agent = "KodiNavidrome/1.0 (+https://kodi.tv)"
+        # Library filter; when set, the native API is skipped because only the
+        # Subsonic endpoints document musicFolderId.
+        self.music_folder_id = str(music_folder_id) if music_folder_id else None
 
         # Get settings of addon
         addon = xbmcaddon.Addon()
@@ -76,6 +121,7 @@ class NavidromeAPI:
 
         self.api_timeout = int(addon.getSetting('api_timeout') or '10')
         self.enable_debug = addon.getSettingBool('enable_debug')
+        self.playback_report = self._get_bool(addon, 'enable_playback_report', True)
 
         # TLS — self-signed / private CA support
         self.verify_ssl = self._get_bool(addon, 'verify_ssl', True)
@@ -270,7 +316,7 @@ class NavidromeAPI:
         and re-authenticates + retries once on 401.
         Returns parsed JSON (usually a list) or None to signal fallback.
         """
-        if not self.native_token:
+        if not self.native_token or self.music_folder_id:
             return None
 
         try:
@@ -348,14 +394,22 @@ class NavidromeAPI:
         query_string = urllib.parse.urlencode(base_params, doseq=True)
         return f"{self.server_url}/rest/{endpoint}?{query_string}"
 
-    def _make_request(self, endpoint, params=None):
-        """Make a Subsonic API request and return the subsonic-response payload."""
+    def _make_request(self, endpoint, params=None, body=None):
+        """
+        Make a Subsonic API request and return the subsonic-response payload.
+        With ``body`` the request is a POST carrying it as JSON.
+        """
+        if self.music_folder_id and endpoint in FOLDER_ENDPOINTS:
+            params = dict(params or {}, musicFolderId=self.music_folder_id)
         try:
             url = self._build_url(endpoint, params)
             if self.enable_debug:
                 xbmc.log(f"NAVIDROME API: Requesting {endpoint} {params or ''}", xbmc.LOGINFO)
 
             req = urllib.request.Request(url)
+            if body is not None:
+                req.data = json.dumps(body).encode('utf-8')
+                req.add_header('Content-Type', 'application/json')
             req.add_header('User-Agent', self.user_agent)
             req.add_header('Accept', 'application/json')
 
@@ -615,6 +669,30 @@ class NavidromeAPI:
         songs, _failed = self._paged(fetch_subsonic, size, offset)
         return songs
 
+    def get_library_songs(self, on_progress=None):
+        """
+        Every song of the selected library in Subsonic format, for the Kodi
+        library sync. Returns None if any request failed, so that a network
+        error is never mistaken for songs having been deleted.
+        """
+        songs = []
+        while True:
+            response = self._make_request('search3', {
+                'query': '',
+                'artistCount': 0,
+                'albumCount': 0,
+                'songCount': MAX_REQUEST_SIZE,
+                'songOffset': len(songs)
+            })
+            if not response or 'searchResult3' not in response:
+                return None
+            batch = response['searchResult3'].get('song', [])
+            songs.extend(batch)
+            if on_progress:
+                on_progress(len(songs))
+            if len(batch) < MAX_REQUEST_SIZE:
+                return songs
+
     def get_starred_albums(self, size=500, offset=0):
         """Get starred/favourite albums (native filter first, Subsonic fallback)."""
         def fetch_native(count, start):
@@ -737,57 +815,40 @@ class NavidromeAPI:
     def get_sonic_similar_tracks(self, song_id, count=50):
         """
         Audio-based similar tracks via the OpenSubsonic 'sonicSimilarity'
-        extension (Navidrome v0.62.0). Requires a plugin (e.g. AudioMuse-AI)
-        that provides the capability; otherwise returns []. Falls back to the
-        metadata-based Instant Mix when the extension is unavailable.
-
-        NOTE: endpoint params are best-effort pending official spec; adjust
-        if the server rejects them.
+        extension (Navidrome v0.62+, needs a plugin such as AudioMuse-AI).
+        Falls back to the metadata-based Instant Mix.
         """
-        if not self.has_extension(EXT_SONIC_SIMILARITY):
-            return self.get_similar_songs(song_id, count)
-
-        response = self._make_request('getSonicSimilarTracks', {
-            'id': song_id,
-            'count': count
-        })
-        if response:
-            # Tolerate a few likely container shapes
-            for key in ('sonicSimilarTracks', 'similarSongs2', 'similarSongs'):
-                container = response.get(key)
-                if isinstance(container, dict):
-                    songs = container.get('song') or container.get('track')
-                    if songs is not None:
-                        return songs
-            if isinstance(response.get('song'), list):
-                return response['song']
-        # Graceful degradation
+        if self.has_extension(EXT_SONIC_SIMILARITY):
+            response = self._make_request('getSonicSimilarTracks', {
+                'id': song_id,
+                'count': count
+            })
+            # Spec: top-level sonicMatch array of {entry: Child, similarity}.
+            matches = (response or {}).get('sonicMatch') or []
+            songs = [m['entry'] for m in matches if isinstance(m, dict) and m.get('entry')]
+            if songs:
+                return songs
         return self.get_similar_songs(song_id, count)
 
-    def find_sonic_path(self, from_id, to_id, count=25):
-        """
-        Build a 'sonic path' between two tracks via the 'sonicSimilarity'
-        extension (Navidrome v0.62.0). Returns [] if the extension is absent.
-
-        NOTE: param names are best-effort pending official spec.
-        """
-        if not self.has_extension(EXT_SONIC_SIMILARITY):
+    def get_top_songs(self, artist_id, artist_name, count=50):
+        """Top songs of an artist (Last.fm data); by id on Navidrome v0.64+."""
+        params = {'count': count}
+        if artist_name:
+            params['artist'] = artist_name
+        if artist_id and self.has_extension(EXT_TOP_SONGS_BY_ID):
+            params['id'] = artist_id
+        if 'artist' not in params and 'id' not in params:
             return []
+        response = self._make_request('getTopSongs', params)
+        if response and 'topSongs' in response:
+            return response['topSongs'].get('song', [])
+        return []
 
-        response = self._make_request('findSonicPath', {
-            'from': from_id,
-            'to': to_id,
-            'count': count
-        })
-        if response:
-            for key in ('sonicPath', 'similarSongs2', 'similarSongs'):
-                container = response.get(key)
-                if isinstance(container, dict):
-                    songs = container.get('song') or container.get('track')
-                    if songs is not None:
-                        return songs
-            if isinstance(response.get('song'), list):
-                return response['song']
+    # Libraries (Navidrome multi-library)
+    def get_music_folders(self):
+        response = self._make_request('getMusicFolders')
+        if response and 'musicFolders' in response:
+            return response['musicFolders'].get('musicFolder', [])
         return []
 
     # Radios
@@ -803,74 +864,118 @@ class NavidromeAPI:
         """Get cover art URL (fetched by Kodi)."""
         return self.kodi_url(self._build_url('getCoverArt', {'id': cover_art_id, 'size': size}))
 
-    def get_stream_url(self, song_id, max_bit_rate=None, for_kodi=True):
+    def _transcode_decision(self, song_id):
         """
-        Get stream URL for a song.
+        Ask the server what to send for a song (OpenSubsonic 'transcoding').
+
+        The plain stream endpoint re-encodes every file that is not already
+        in the chosen format, even one below the bitrate limit. Here the
+        server is told Kodi plays anything, so only files above the limit
+        are transcoded. Returns the decision, or None to use the plain
+        endpoint.
+        """
+        if not self.has_extension(EXT_TRANSCODING) or self.transcode_format == 'aac':
+            return None
+        response = self._make_request(
+            'getTranscodeDecision', {'mediaId': song_id, 'mediaType': 'song'},
+            body={
+                'name': self.client_name,
+                'platform': 'Kodi',
+                'maxAudioBitrate': self.max_bitrate * 1000,
+                'maxTranscodingAudioBitrate': self.max_bitrate * 1000,
+                'directPlayProfiles': [{'protocols': ['http']}],
+                'transcodingProfiles': [{
+                    'container': self.transcode_format,
+                    'audioCodec': self.transcode_format,
+                    'protocol': 'http',
+                }],
+            })
+        decision = (response or {}).get('transcodeDecision') or {}
+        if decision.get('canDirectPlay') or (
+                decision.get('canTranscode') and decision.get('transcodeParams')):
+            return decision
+        return None
+
+    def get_stream(self, song_id, for_kodi=True):
+        """
+        (url, format) of a song's stream; format is None when the file is
+        sent as stored.
 
         ``for_kodi`` decorates the URL with Kodi protocol options; pass False
         when the addon itself will fetch the URL with urllib.
         """
-        params = {'id': song_id}
+        endpoint, params, fmt = 'stream', {'id': song_id}, None
         if self.enable_transcoding:
-            params['maxBitRate'] = self.max_bitrate
-            params['format'] = self.transcode_format
-        elif max_bit_rate:
-            params['maxBitRate'] = max_bit_rate
-        url = self._build_url('stream', params)
-        return self.kodi_url(url) if for_kodi else url
+            decision = self._transcode_decision(song_id)
+            if decision is None:
+                params['maxBitRate'] = self.max_bitrate
+                params['format'] = fmt = self.transcode_format
+            elif decision.get('canDirectPlay'):
+                params['format'] = 'raw'
+            else:
+                endpoint = 'getTranscodeStream'
+                params = {'mediaId': song_id, 'mediaType': 'song',
+                          'transcodeParams': decision['transcodeParams']}
+                fmt = (decision.get('transcodeStream') or {}).get('container') \
+                    or self.transcode_format
+        url = self._build_url(endpoint, params)
+        return (self.kodi_url(url) if for_kodi else url), fmt
 
     def open_stream(self, song_id):
         """
-        Open the raw audio stream for downloading, honouring the TLS settings.
-        Returns the response object (caller must close it) or None.
+        Open the audio stream for downloading, honouring the TLS settings.
+        Returns (response, format): the caller must close the response;
+        format is None when the file comes as stored. (None, None) on failure.
         """
         try:
-            url = self.get_stream_url(song_id, for_kodi=False)
+            url, fmt = self.get_stream(song_id, for_kodi=False)
             req = urllib.request.Request(url)
             req.add_header('User-Agent', self.user_agent)
-            return self._urlopen(req)
+            return self._urlopen(req), fmt
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, ssl.SSLError):
                 self._log_ssl_error(exc.reason)
             else:
                 xbmc.log(f"NAVIDROME API: stream open failed: {exc.reason}", xbmc.LOGERROR)
-            return None
+            return None, None
         except Exception as exc:
             xbmc.log(f"NAVIDROME API: stream open failed: {exc}", xbmc.LOGERROR)
-            return None
+            return None, None
 
     # Playback reporting / annotation — Subsonic/OpenSubsonic
-    def report_playback(self, track_id, submission=True):
+    def report_state(self, track_id, state, position_ms=0):
         """
-        Report playback. Prefers the OpenSubsonic 'playbackReport' extension
-        (Navidrome v0.62.0) and falls back to classic scrobble otherwise.
-        submission=False => 'now playing'; submission=True => played.
+        Now-playing state: starting, playing, paused or stopped.
+
+        Uses the OpenSubsonic 'playbackReport' extension (Navidrome v0.62+)
+        with ignoreScrobble, so plays are only counted by scrobble(). Older
+        servers, or the extension switched off in the settings, get a classic
+        submission=false scrobble for start/resume.
         """
-        now_ms = int(time.time() * 1000)
-        if self.has_extension(EXT_PLAYBACK_REPORT):
+        if self.playback_report and self.has_extension(EXT_PLAYBACK_REPORT):
             response = self._make_request('reportPlayback', {
-                'id': track_id,
-                'submission': 'true' if submission else 'false',
-                'time': now_ms
+                'mediaId': track_id,
+                'mediaType': 'song',
+                'positionMs': max(0, int(position_ms)),
+                'state': state,
+                'ignoreScrobble': 'true',
             })
             if response is not None:
                 return True
-            # fall through to scrobble on failure
+        if state in ('starting', 'playing'):
+            return self._make_request('scrobble', {
+                'id': track_id, 'submission': 'false'
+            }) is not None
+        return False
 
+    def scrobble(self, track_id, started_at=None):
+        """Register a play; started_at (epoch seconds) is when playback began."""
         response = self._make_request('scrobble', {
             'id': track_id,
-            'submission': 'true' if submission else 'false',
-            'time': now_ms
+            'submission': 'true',
+            'time': int((started_at or time.time()) * 1000)
         })
         return response is not None
-
-    def update_now_playing(self, track_id):
-        """Update now playing status (kept for API compatibility)."""
-        return self.report_playback(track_id, submission=False)
-
-    def scrobble(self, track_id):
-        """Scrobble a track / mark as played (kept for API compatibility)."""
-        return self.report_playback(track_id, submission=True)
 
     def star(self, item_id, item_type='song'):
         """Star an item (song, album, or artist)."""

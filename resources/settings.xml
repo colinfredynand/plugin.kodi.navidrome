@@ -1,11 +1,27 @@
 <settings>
     <category label="Server">
+        <setting id="active_account" type="labelenum" label="Active account" values="1|2|3" default="1" />
+        <setting type="lsep" label="Account 1" />
+        <setting id="account_name" type="text" label="Name (optional)" default="" />
         <setting id="server_url" type="text" label="Server URL" default="http://localhost:4533" />
         <setting id="username" type="text" label="Username" default="" />
         <setting id="password" type="text" label="Password" option="hidden" default="" />
         <setting type="lsep" label="TLS" />
         <setting id="verify_ssl" type="bool" label="Verify TLS certificate" default="true" />
         <setting id="ca_cert_path" type="file" label="CA certificate (for a private/self-signed CA)" default="" enable="eq(-1,true)" />
+    </category>
+
+    <category label="More accounts">
+        <setting type="lsep" label="Account 2" />
+        <setting id="account_name_2" type="text" label="Name (optional)" default="" />
+        <setting id="server_url_2" type="text" label="Server URL" default="" />
+        <setting id="username_2" type="text" label="Username" default="" />
+        <setting id="password_2" type="text" label="Password" option="hidden" default="" />
+        <setting type="lsep" label="Account 3" />
+        <setting id="account_name_3" type="text" label="Name (optional)" default="" />
+        <setting id="server_url_3" type="text" label="Server URL" default="" />
+        <setting id="username_3" type="text" label="Username" default="" />
+        <setting id="password_3" type="text" label="Password" option="hidden" default="" />
     </category>
 
     <category label="Playback">
@@ -20,10 +36,17 @@
         <setting type="action" label="Clear Offline Cache" action="RunPlugin(plugin://plugin.kodi.navidrome/?action=clear_cache)" enable="eq(-2,true)" />
     </category>
 
+    <category label="Kodi library">
+        <setting id="library_sync" type="bool" label="Show Navidrome music in Kodi's Music library" default="false" />
+        <setting type="action" label="Sync now" action="RunPlugin(plugin://plugin.kodi.navidrome/?action=sync_library)" enable="eq(-1,true)" />
+        <setting type="action" label="Remove Navidrome music from Kodi's library" action="RunPlugin(plugin://plugin.kodi.navidrome/?action=remove_library)" />
+    </category>
+
     <category label="Scrobbling">
         <setting id="enable_scrobbling" type="bool" label="Enable Scrobbling" default="true" />
         <setting id="scrobble_threshold" type="slider" label="Scrobble After (%)" default="50" range="10,5,90" option="percent" enable="eq(-1,true)" />
         <setting id="enable_now_playing" type="bool" label="Update Now Playing" default="true" />
+        <setting id="enable_playback_report" type="bool" label="Playback report: position, pause and stop (Navidrome 0.62+)" default="true" enable="eq(-1,true)" />
     </category>
 
     <category label="Display">
@@ -34,5 +57,12 @@
     <category label="Advanced">
         <setting id="api_timeout" type="slider" label="API Timeout (seconds)" default="10" range="5,1,30" />
         <setting id="enable_debug" type="bool" label="Enable Debug Logging" default="false" />
+        <!-- Library picked from the main menu, per account -->
+        <setting id="music_folder" type="text" default="" visible="false" />
+        <setting id="music_folder_name" type="text" default="" visible="false" />
+        <setting id="music_folder_2" type="text" default="" visible="false" />
+        <setting id="music_folder_name_2" type="text" default="" visible="false" />
+        <setting id="music_folder_3" type="text" default="" visible="false" />
+        <setting id="music_folder_name_3" type="text" default="" visible="false" />
     </category>
 </settings>

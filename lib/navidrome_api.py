@@ -661,6 +661,30 @@ class NavidromeAPI:
         songs, _failed = self._paged(fetch_subsonic, size, offset)
         return songs
 
+    def get_library_songs(self, on_progress=None):
+        """
+        Every song of the selected library in Subsonic format, for the Kodi
+        library sync. Returns None if any request failed, so that a network
+        error is never mistaken for songs having been deleted.
+        """
+        songs = []
+        while True:
+            response = self._make_request('search3', {
+                'query': '',
+                'artistCount': 0,
+                'albumCount': 0,
+                'songCount': MAX_REQUEST_SIZE,
+                'songOffset': len(songs)
+            })
+            if not response or 'searchResult3' not in response:
+                return None
+            batch = response['searchResult3'].get('song', [])
+            songs.extend(batch)
+            if on_progress:
+                on_progress(len(songs))
+            if len(batch) < MAX_REQUEST_SIZE:
+                return songs
+
     def get_starred_albums(self, size=500, offset=0):
         """Get starred/favourite albums (native filter first, Subsonic fallback)."""
         def fetch_native(count, start):

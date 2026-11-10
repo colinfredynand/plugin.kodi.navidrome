@@ -7,7 +7,7 @@ import xbmcgui
 import xbmcplugin
 
 # Import our API wrapper
-from lib import vfs
+from lib import library_sync, vfs
 from lib.navidrome_api import (
     ACCOUNT_SLOTS, NavidromeAPI, account_configured, account_settings, active_slot,
     slot_suffix,
@@ -15,7 +15,8 @@ from lib.navidrome_api import (
 
 ADDON = xbmcaddon.Addon()
 ADDON_HANDLE = int(sys.argv[1])
-BASE_URL = sys.argv[0]
+# Fixed, not sys.argv[0]: library songs are invoked through the /library/ path.
+BASE_URL = 'plugin://plugin.kodi.navidrome/'
 
 PAGE_SIZES = [50, 100, 200, 500, 1000]
 DEFAULT_PAGE_SIZE = 500
@@ -107,14 +108,6 @@ def root_menu():
     if offline_enabled():
         items.append(("Offline", {"action": "offline"}))
 
-    account = current_account()
-    items.append((f"Library: {account['music_folder_name'] or 'All'}",
-                  {"action": "choose_library"}))
-    configured = [s for s in range(1, ACCOUNT_SLOTS + 1)
-                  if account_configured(account_settings(ADDON, s))]
-    if len(configured) > 1:
-        items.append((f"Account: {account['name']}", {"action": "switch_account"}))
-
     for label, query in items:
         url = build_url(query)
         li = xbmcgui.ListItem(label=label)
@@ -128,7 +121,23 @@ def root_menu():
             isFolder=True,
         )
 
-    xbmcplugin.endOfDirectory(ADDON_HANDLE)
+    # Pickers open a dialog instead of a folder, so they are not folders.
+    account = current_account()
+    pickers = [(f"Library: {account['music_folder_name'] or 'All'}", "choose_library")]
+    configured = [s for s in range(1, ACCOUNT_SLOTS + 1)
+                  if account_configured(account_settings(ADDON, s))]
+    if len(configured) > 1:
+        pickers.append((f"Account: {account['name']}", "switch_account"))
+    for label, action in pickers:
+        xbmcplugin.addDirectoryItem(
+            handle=ADDON_HANDLE,
+            url=build_url({"action": action}),
+            listitem=xbmcgui.ListItem(label=label),
+            isFolder=False,
+        )
+
+    # The labels above change with settings: never serve this from cache.
+    xbmcplugin.endOfDirectory(ADDON_HANDLE, cacheToDisc=False)
 
 
 def albums_menu():
@@ -842,6 +851,39 @@ def switch_account():
     xbmc.executebuiltin('Container.Refresh')
 
 
+def library_sync_enabled():
+    try:
+        return ADDON.getSettingBool('library_sync')
+    except Exception:
+        return False
+
+
+def sync_library_action(remove=False):
+    """Copy the Navidrome library into Kodi's Music library, or take it out."""
+    progress = xbmcgui.DialogProgressBG()
+    progress.create('Navidrome', 'Removing from Kodi library' if remove else 'Syncing Kodi library')
+    try:
+        if remove:
+            result = library_sync.remove()
+            message = f"Removed {result['removed']} songs from Kodi library"
+        else:
+            api = get_api()
+            if not api:
+                return
+            result = library_sync.sync(
+                api, lambda count: progress.update(50, message=f'{count} songs'))
+            message = f"Kodi library: {result['songs']} songs, {result['albums']} albums"
+    except Exception as exc:
+        xbmc.log(f"NAVIDROME SYNC: failed: {exc!r}", xbmc.LOGERROR)
+        xbmcgui.Dialog().notification(
+            'Navidrome', f'Library sync failed: {exc}', xbmcgui.NOTIFICATION_ERROR)
+        return
+    finally:
+        progress.close()
+    xbmcgui.Dialog().notification('Navidrome', message, xbmcgui.NOTIFICATION_INFO)
+    xbmc.executebuiltin('Container.Refresh')
+
+
 def choose_library():
     """Restrict browsing to one Navidrome library (or all of them)."""
     api = get_api()
@@ -1463,7 +1505,17 @@ def router(paramstring):
             limit = None
         return offset, limit
 
-    if action is None:
+    library_path = urllib.parse.unquote(urllib.parse.urlparse(sys.argv[0]).path)
+    if library_path.startswith('/library'):
+        # Kodi's Music library (see lib/library_sync.py): a song there is
+        # /library/<id>.<suffix>; the folder itself is listed by Kodi's
+        # library scanner and must look empty.
+        song_id = library_sync.song_id_from_library_path(library_path)
+        if song_id:
+            play_track(song_id)
+        else:
+            xbmcplugin.endOfDirectory(ADDON_HANDLE, cacheToDisc=False)
+    elif action is None:
         root_menu()
     elif action == "albums_menu":
         albums_menu()
@@ -1551,6 +1603,10 @@ def router(paramstring):
         switch_account()
     elif action == "choose_library":
         choose_library()
+    elif action == "sync_library":
+        sync_library_action()
+    elif action == "remove_library":
+        sync_library_action(remove=True)
     else:
         xbmc.log(f"Unknown action: {action}", xbmc.LOGWARNING)
         root_menu()

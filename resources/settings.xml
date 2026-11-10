@@ -36,6 +36,12 @@
         <setting type="action" label="Clear Offline Cache" action="RunPlugin(plugin://plugin.kodi.navidrome/?action=clear_cache)" enable="eq(-2,true)" />
     </category>
 
+    <category label="Kodi library">
+        <setting id="library_sync" type="bool" label="Show Navidrome music in Kodi's Music library" default="false" />
+        <setting type="action" label="Sync now" action="RunPlugin(plugin://plugin.kodi.navidrome/?action=sync_library)" enable="eq(-1,true)" />
+        <setting type="action" label="Remove Navidrome music from Kodi's library" action="RunPlugin(plugin://plugin.kodi.navidrome/?action=remove_library)" />
+    </category>
+
     <category label="Scrobbling">
         <setting id="enable_scrobbling" type="bool" label="Enable Scrobbling" default="true" />
         <setting id="scrobble_threshold" type="slider" label="Scrobble After (%)" default="50" range="10,5,90" option="percent" enable="eq(-1,true)" />

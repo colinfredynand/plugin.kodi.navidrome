@@ -34,6 +34,10 @@ class TrackIdTest(unittest.TestCase):
         path = 'plugin://plugin.kodi.navidrome/?action=play_track&id=abc123'
         self.assertEqual(service.track_id_from_path(path), 'abc123')
 
+    def test_plugin_url_of_a_kodi_library_song(self):
+        path = 'plugin://plugin.kodi.navidrome/library/abc123.flac'
+        self.assertEqual(service.track_id_from_path(path), 'abc123')
+
     def test_stream_url_with_kodi_options(self):
         path = ('https://nd.example/rest/stream?u=x&id=s1&c=KodiNavidrome&f=json'
                 '|verifypeer=false')
@@ -43,6 +47,8 @@ class TrackIdTest(unittest.TestCase):
         self.assertIsNone(service.track_id_from_path('plugin://plugin.other/?action=play_track&id=1'))
         self.assertIsNone(service.track_id_from_path('https://x/rest/stream?id=1&c=OtherClient'))
         self.assertIsNone(service.track_id_from_path(''))
+        self.assertIsNone(service.track_id_from_path('plugin://plugin.kodi.navidrome/library/'))
+        self.assertIsNone(service.track_id_from_path('plugin://plugin.kodi.navidrome/?action=songs'))
 
 
 class FakeService:
@@ -111,6 +117,34 @@ class PlaylistScrobbleTest(unittest.TestCase):
         player.poll()
         self.assertEqual(player.track_id, 'a')
         self.assertIn(('scrobble', 'a'), svc.calls)
+
+    def test_stop_between_polls_counts_time_since_last_poll(self):
+        svc = FakeService()
+        player = FakePlayer(svc)
+        player.file, player.time = plugin_url('a'), 95.0   # threshold is 100s
+        player.poll()
+        player.position_at -= 6                           # 6s of playback pass
+        player.onPlayBackStopped()
+        self.assertIn(('scrobble', 'a'), svc.calls)
+
+    def test_gapless_change_reports_new_time_before_new_file(self):
+        svc = FakeService()
+        player = FakePlayer(svc)
+        player.file, player.time, player.total = plugin_url('a'), 5.0, 12.0
+        player.poll()
+        player.position_at -= 4          # 9s in, past half of 12s
+        player.time = 0.1                # Kodi already counts the next track
+        player.onAVStarted()
+        self.assertIn(('scrobble', 'a'), svc.calls)
+
+    def test_paused_time_is_not_listening(self):
+        svc = FakeService()
+        player = FakePlayer(svc)
+        player.file, player.time = plugin_url('a'), 95.0
+        player.poll()
+        player.onPlayBackPaused()
+        player.onPlayBackStopped()
+        self.assertNotIn(('scrobble', 'a'), svc.calls)
 
     def test_skipped_track_not_scrobbled(self):
         svc = FakeService()

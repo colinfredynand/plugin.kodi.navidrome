@@ -66,9 +66,9 @@ def safe_name(name):
     """Reduce an arbitrary id/name to something safe on every filesystem."""
     text = ''.join(c if c in _SAFE_CHARS else '_' for c in str(name))
     text = text.strip('.') or 'item'
-    if len(text) > 96:
-        text = text[:96]
-    return xbmcvfs.makeLegalFilename(text).rsplit('/', 1)[-1]
+    # Not xbmcvfs.makeLegalFilename: it treats its input as a folder and
+    # appends '/', and the characters left here are legal everywhere anyway.
+    return text[:96]
 
 
 # Thin xbmcvfs wrappers
@@ -80,15 +80,20 @@ def exists(path):
         return False
 
 
+def dir_exists(path):
+    # xbmcvfs.exists() only recognises a directory when the path ends in '/'.
+    return exists(path.rstrip('/') + '/')
+
+
 def ensure_dir(path):
     """Create a directory and every missing parent. Returns True when usable."""
-    if exists(path):
+    if dir_exists(path):
         return True
     try:
         xbmcvfs.mkdirs(path)
     except Exception as exc:
         _log(f"mkdirs({path}) failed: {exc}", xbmc.LOGWARNING)
-    return exists(path)
+    return dir_exists(path)
 
 
 def delete(path):
@@ -101,7 +106,7 @@ def delete(path):
 
 def listdir(path):
     """Return (dirs, files); empty lists when the folder is missing."""
-    if not exists(path):
+    if not dir_exists(path):
         return [], []
     try:
         dirs, files = xbmcvfs.listdir(path)

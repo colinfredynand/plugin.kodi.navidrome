@@ -78,19 +78,47 @@ After installation, you must configure the addon to connect to your Navidrome se
         larger than 500 are assembled from several requests, because that is the
         most the server will return at once.
 
+## Kodi Music library
+
+Turn on **Settings > Kodi library > Show Navidrome music in Kodi's Music
+library** and your Navidrome songs, albums, artists and genres appear in
+Kodi's own **Music** section and home screen, with cover art, play counts
+and your ratings.
+
+*   The library is synced when Kodi starts, every 6 hours, after you change
+    the addon's settings (account, library) and on **Sync now**.
+*   It shows the active account and library only; switching replaces it.
+*   Playback goes through the addon, so scrobbling, transcoding and offline
+    copies work the same as when browsing the addon.
+*   Music you scanned into Kodi from other sources is not touched, and Kodi's
+    "Update library" / "Clean library" leave the Navidrome music alone.
+*   **Remove Navidrome music from Kodi's library** takes it all out again.
+*   Ratings and play counts are copied from Navidrome into Kodi, not the
+    other way round: rate through the addon's **Set Rating** menu.
+
+How it works: Kodi has no interface for adding streamed music to its library,
+so, like Jellyfin for Kodi, the addon writes the entries directly into Kodi's
+music database (`MyMusic82.db` on Kodi 20, `MyMusic83.db` on Kodi 21). Other
+database versions are refused rather than guessed at. This technique is not
+allowed in Kodi's official repository, which is one reason the addon is
+distributed through GitHub.
+
 ## Requirements
 
-Kodi 20 (Nexus) or newer. Targets the Navidrome 0.64 API; on older servers
-the features that need a newer server are skipped.
+Kodi 20 (Nexus) or newer; tested on Kodi 21.3 with Navidrome 0.64.2. On older
+servers the features that need a newer server are skipped.
 
 ## Known Issues & Roadmap
 
-*   **Not in Kodi's Music library**: the music is browsed through
-    **Music > Add-ons > Navidrome**. Adding the addon as a music *source* and
-    scanning it does not work, and it is not supported: Kodi's music scanner
-    cannot read tags from a streaming add-on. Proper library integration needs
-    a sync into Kodi's music database and is on the roadmap.
-
+*   **Kodi library, single songs from remote apps**: with the Kodi library
+    integration on, everything on Kodi's own screens plays normally, and
+    remote apps can start albums. A remote app asking Kodi for one library
+    song by its id (JSON-RPC `Player.Open` with `songid`) does not play: Kodi
+    cannot open an add-on address that way.
+*   **Do not add the addon as a music source**: scanning it (the old advice
+    in some forum posts) finds nothing, because Kodi's scanner cannot read
+    tags from a stream. Use the Kodi library integration below instead, and
+    remove such a source if you added one.
 *   **VFS Implementation**: *Done.* Playback now resolves through the plugin
     (`setResolvedUrl`) rather than handing Kodi a bare HTTP URL, and everything
     the addon stores — the offline media cache, its metadata sidecars, the cached
@@ -106,6 +134,12 @@ This addon is written in Python and uses the standard Kodi Addon API.
 *   `service.py`: Background service (scrobbling and "Now Playing" updates).
 *   `lib/navidrome_api.py`: Wrapper for the Navidrome native, Subsonic and
     OpenSubsonic APIs, including TLS setup and page assembly.
+*   `lib/library_sync.py`: writes the Navidrome library into Kodi's music
+    database.
+*   `tests/`: `python3 -m unittest discover tests` runs without Kodi (the
+    library sync runs against Kodi 21's real schema);
+    `tests/integration_navidrome.py` checks the API layer against a live
+    Navidrome server.
 *   `lib/vfs.py`: Kodi Virtual File System layer — paths, JSON/binary IO and the
     offline media cache.
 *   `resources/`: Settings, language files, and images.

@@ -46,6 +46,7 @@
         <setting id="enable_scrobbling" type="bool" label="Enable Scrobbling" default="true" />
         <setting id="scrobble_threshold" type="slider" label="Scrobble After (%)" default="50" range="10,5,90" option="percent" enable="eq(-1,true)" />
         <setting id="enable_now_playing" type="bool" label="Update Now Playing" default="true" />
+        <setting id="enable_playback_report" type="bool" label="Playback report: position, pause and stop (Navidrome 0.62+)" default="true" enable="eq(-1,true)" />
     </category>
 
     <category label="Display">

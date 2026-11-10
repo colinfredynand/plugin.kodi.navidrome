@@ -43,6 +43,10 @@ class TrackIdTest(unittest.TestCase):
                 '|verifypeer=false')
         self.assertEqual(service.track_id_from_path(path), 's1')
 
+    def test_transcode_stream_url(self):
+        path = 'https://nd.example/rest/getTranscodeStream?mediaId=s2&transcodeParams=x&c=KodiNavidrome'
+        self.assertEqual(service.track_id_from_path(path), 's2')
+
     def test_foreign_urls_ignored(self):
         self.assertIsNone(service.track_id_from_path('plugin://plugin.other/?action=play_track&id=1'))
         self.assertIsNone(service.track_id_from_path('https://x/rest/stream?id=1&c=OtherClient'))
@@ -156,6 +160,27 @@ class PlaylistScrobbleTest(unittest.TestCase):
         self.assertNotIn(('scrobble', 'a'), svc.calls)
         self.assertIn(('report_state', 'b'), svc.calls)
 
+    def test_transcoded_stream_uses_listed_duration(self):
+        svc = FakeService()
+        player = FakePlayer(svc)
+        player.getMusicInfoTag = lambda: type('Tag', (), {'getDuration': lambda self: 60})()
+        player.file, player.time, player.total = plugin_url('a'), 0.0, 0.0
+        player.poll()
+        player.time = 35.0
+        player.poll()
+        self.assertIn(('scrobble', 'a'), svc.calls)
+
+    def test_seek_while_paused_stays_paused(self):
+        svc = FakeService()
+        player = FakePlayer(svc)
+        player.file, player.time = plugin_url('a'), 10.0
+        player.poll()
+        player.onPlayBackPaused()
+        player.time = 50.0
+        player.onPlayBackSeek(50000, 40000)
+        self.assertIsNone(player.position_at)
+        self.assertEqual(player.position, 50.0)
+
     def test_threshold_caps_at_four_minutes(self):
         self.assertTrue(service.should_scrobble(240, 3600, 50))
         self.assertFalse(service.should_scrobble(239, 3600, 50))
@@ -192,14 +217,52 @@ class ApiTest(unittest.TestCase):
             'sonicMatch': [{'entry': {'id': '1'}, 'similarity': 0.9}]}
         self.assertEqual(api.get_sonic_similar_tracks('x'), [{'id': '1'}])
 
+    def test_playback_report_switched_off_uses_classic_now_playing(self):
+        api = bare_api(os_extensions={navidrome_api.EXT_PLAYBACK_REPORT}, playback_report=False)
+        sent = []
+        api._make_request = lambda e, p=None: sent.append((e, p)) or {}
+        api.report_state('t1', 'playing', 0)
+        api.report_state('t1', 'paused', 5000)
+        self.assertEqual(sent, [('scrobble', {'id': 't1', 'submission': 'false'})])
+
     def test_report_playback_uses_spec_params(self):
-        api = bare_api(os_extensions={navidrome_api.EXT_PLAYBACK_REPORT})
+        api = bare_api(os_extensions={navidrome_api.EXT_PLAYBACK_REPORT}, playback_report=True)
         sent = []
         api._make_request = lambda e, p=None: sent.append((e, p)) or {}
         api.report_state('t1', 'paused', 1234.5)
         self.assertEqual(sent, [('reportPlayback', {
             'mediaId': 't1', 'mediaType': 'song', 'positionMs': 1234,
             'state': 'paused', 'ignoreScrobble': 'true'})])
+
+    def stream_api(self, decision, fmt='opus'):
+        api = bare_api(os_extensions={navidrome_api.EXT_TRANSCODING}, enable_transcoding=True,
+                       max_bitrate=192, transcode_format=fmt, client_name='KodiNavidrome')
+        api.verify_ssl = True
+        api.asked = []
+        api._make_request = lambda e, p=None, body=None: (
+            api.asked.append(body) or {'transcodeDecision': decision})
+        api._build_url = lambda endpoint, params=None: (endpoint, params)
+        return api
+
+    def test_stream_direct_play_when_server_allows(self):
+        api = self.stream_api({'canDirectPlay': True})
+        self.assertEqual(api.get_stream('s1', for_kodi=False),
+                         (('stream', {'id': 's1', 'format': 'raw'}), None))
+        self.assertEqual(api.asked[0]['maxAudioBitrate'], 192000)
+
+    def test_stream_transcoded_by_decision(self):
+        api = self.stream_api({'canTranscode': True, 'transcodeParams': 'tok',
+                               'transcodeStream': {'container': 'opus'}})
+        self.assertEqual(api.get_stream('s1', for_kodi=False), ((
+            'getTranscodeStream',
+            {'mediaId': 's1', 'mediaType': 'song', 'transcodeParams': 'tok'}), 'opus'))
+
+    def test_stream_falls_back_to_plain_endpoint(self):
+        legacy = (('stream', {'id': 's1', 'maxBitRate': 192, 'format': 'opus'}), 'opus')
+        self.assertEqual(self.stream_api({}).get_stream('s1', for_kodi=False), legacy)
+        api = self.stream_api({'canDirectPlay': True}, fmt='aac')
+        self.assertEqual(api.get_stream('s1', for_kodi=False)[1], 'aac')
+        self.assertEqual(api.asked, [])
 
     def test_account_slots(self):
         addon = FakeAddon(active_account='2', server_url='http://a', username='u',

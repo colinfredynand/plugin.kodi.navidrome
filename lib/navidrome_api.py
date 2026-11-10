@@ -18,6 +18,7 @@ from lib import vfs
 EXT_SONIC_SIMILARITY = 'sonicSimilarity'     # Navidrome v0.62.0 (plugin-needed)
 EXT_PLAYBACK_REPORT = 'playbackReport'       # Navidrome v0.62.0
 EXT_TOP_SONGS_BY_ID = 'topSongsByArtistId'   # Navidrome v0.64.0
+EXT_TRANSCODING = 'transcoding'
 
 # Subsonic endpoints that accept musicFolderId (Navidrome multi-library).
 FOLDER_ENDPOINTS = {
@@ -120,6 +121,7 @@ class NavidromeAPI:
 
         self.api_timeout = int(addon.getSetting('api_timeout') or '10')
         self.enable_debug = addon.getSettingBool('enable_debug')
+        self.playback_report = self._get_bool(addon, 'enable_playback_report', True)
 
         # TLS — self-signed / private CA support
         self.verify_ssl = self._get_bool(addon, 'verify_ssl', True)
@@ -392,8 +394,11 @@ class NavidromeAPI:
         query_string = urllib.parse.urlencode(base_params, doseq=True)
         return f"{self.server_url}/rest/{endpoint}?{query_string}"
 
-    def _make_request(self, endpoint, params=None):
-        """Make a Subsonic API request and return the subsonic-response payload."""
+    def _make_request(self, endpoint, params=None, body=None):
+        """
+        Make a Subsonic API request and return the subsonic-response payload.
+        With ``body`` the request is a POST carrying it as JSON.
+        """
         if self.music_folder_id and endpoint in FOLDER_ENDPOINTS:
             params = dict(params or {}, musicFolderId=self.music_folder_id)
         try:
@@ -402,6 +407,9 @@ class NavidromeAPI:
                 xbmc.log(f"NAVIDROME API: Requesting {endpoint} {params or ''}", xbmc.LOGINFO)
 
             req = urllib.request.Request(url)
+            if body is not None:
+                req.data = json.dumps(body).encode('utf-8')
+                req.add_header('Content-Type', 'application/json')
             req.add_header('User-Agent', self.user_agent)
             req.add_header('Accept', 'application/json')
 
@@ -856,41 +864,83 @@ class NavidromeAPI:
         """Get cover art URL (fetched by Kodi)."""
         return self.kodi_url(self._build_url('getCoverArt', {'id': cover_art_id, 'size': size}))
 
-    def get_stream_url(self, song_id, max_bit_rate=None, for_kodi=True):
+    def _transcode_decision(self, song_id):
         """
-        Get stream URL for a song.
+        Ask the server what to send for a song (OpenSubsonic 'transcoding').
+
+        The plain stream endpoint re-encodes every file that is not already
+        in the chosen format, even one below the bitrate limit. Here the
+        server is told Kodi plays anything, so only files above the limit
+        are transcoded. Returns the decision, or None to use the plain
+        endpoint.
+        """
+        if not self.has_extension(EXT_TRANSCODING) or self.transcode_format == 'aac':
+            return None
+        response = self._make_request(
+            'getTranscodeDecision', {'mediaId': song_id, 'mediaType': 'song'},
+            body={
+                'name': self.client_name,
+                'platform': 'Kodi',
+                'maxAudioBitrate': self.max_bitrate * 1000,
+                'maxTranscodingAudioBitrate': self.max_bitrate * 1000,
+                'directPlayProfiles': [{'protocols': ['http']}],
+                'transcodingProfiles': [{
+                    'container': self.transcode_format,
+                    'audioCodec': self.transcode_format,
+                    'protocol': 'http',
+                }],
+            })
+        decision = (response or {}).get('transcodeDecision') or {}
+        if decision.get('canDirectPlay') or (
+                decision.get('canTranscode') and decision.get('transcodeParams')):
+            return decision
+        return None
+
+    def get_stream(self, song_id, for_kodi=True):
+        """
+        (url, format) of a song's stream; format is None when the file is
+        sent as stored.
 
         ``for_kodi`` decorates the URL with Kodi protocol options; pass False
         when the addon itself will fetch the URL with urllib.
         """
-        params = {'id': song_id}
+        endpoint, params, fmt = 'stream', {'id': song_id}, None
         if self.enable_transcoding:
-            params['maxBitRate'] = self.max_bitrate
-            params['format'] = self.transcode_format
-        elif max_bit_rate:
-            params['maxBitRate'] = max_bit_rate
-        url = self._build_url('stream', params)
-        return self.kodi_url(url) if for_kodi else url
+            decision = self._transcode_decision(song_id)
+            if decision is None:
+                params['maxBitRate'] = self.max_bitrate
+                params['format'] = fmt = self.transcode_format
+            elif decision.get('canDirectPlay'):
+                params['format'] = 'raw'
+            else:
+                endpoint = 'getTranscodeStream'
+                params = {'mediaId': song_id, 'mediaType': 'song',
+                          'transcodeParams': decision['transcodeParams']}
+                fmt = (decision.get('transcodeStream') or {}).get('container') \
+                    or self.transcode_format
+        url = self._build_url(endpoint, params)
+        return (self.kodi_url(url) if for_kodi else url), fmt
 
     def open_stream(self, song_id):
         """
-        Open the raw audio stream for downloading, honouring the TLS settings.
-        Returns the response object (caller must close it) or None.
+        Open the audio stream for downloading, honouring the TLS settings.
+        Returns (response, format): the caller must close the response;
+        format is None when the file comes as stored. (None, None) on failure.
         """
         try:
-            url = self.get_stream_url(song_id, for_kodi=False)
+            url, fmt = self.get_stream(song_id, for_kodi=False)
             req = urllib.request.Request(url)
             req.add_header('User-Agent', self.user_agent)
-            return self._urlopen(req)
+            return self._urlopen(req), fmt
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, ssl.SSLError):
                 self._log_ssl_error(exc.reason)
             else:
                 xbmc.log(f"NAVIDROME API: stream open failed: {exc.reason}", xbmc.LOGERROR)
-            return None
+            return None, None
         except Exception as exc:
             xbmc.log(f"NAVIDROME API: stream open failed: {exc}", xbmc.LOGERROR)
-            return None
+            return None, None
 
     # Playback reporting / annotation — Subsonic/OpenSubsonic
     def report_state(self, track_id, state, position_ms=0):
@@ -899,9 +949,10 @@ class NavidromeAPI:
 
         Uses the OpenSubsonic 'playbackReport' extension (Navidrome v0.62+)
         with ignoreScrobble, so plays are only counted by scrobble(). Older
-        servers get a classic submission=false scrobble for start/resume.
+        servers, or the extension switched off in the settings, get a classic
+        submission=false scrobble for start/resume.
         """
-        if self.has_extension(EXT_PLAYBACK_REPORT):
+        if self.playback_report and self.has_extension(EXT_PLAYBACK_REPORT):
             response = self._make_request('reportPlayback', {
                 'mediaId': track_id,
                 'mediaType': 'song',

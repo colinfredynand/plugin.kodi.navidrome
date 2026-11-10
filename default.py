@@ -440,15 +440,8 @@ def list_album_tracks(album_id):
     xbmcplugin.endOfDirectory(ADDON_HANDLE)
 
 
-def mime_type_for(api, suffix):
-    """Best guess MIME type so Kodi picks PAPlayer rather than sniffing."""
-    if api is not None and api.enable_transcoding:
-        return {
-            'mp3': 'audio/mpeg',
-            'opus': 'audio/ogg',
-            'aac': 'audio/aac',
-        }.get(api.transcode_format, 'audio/mpeg')
-
+def mime_type_for(suffix):
+    """MIME type of a format, so Kodi need not ask the server for it."""
     return {
         'flac': 'audio/flac',
         'mp3': 'audio/mpeg',
@@ -500,6 +493,7 @@ def add_track_item(api, track, cache=None):
     music_tag.setAlbum(album_name)
     music_tag.setDuration(duration)  # Now it's an int
     music_tag.setTrack(track_number)
+    music_tag.setDisc(int(track.get('discNumber') or 1))
     if year > 0:  # Only set year if valid
         music_tag.setYear(year)
     music_tag.setMediaType('song')
@@ -508,7 +502,7 @@ def add_track_item(api, track, cache=None):
         music_tag.setUserRating(rating * 2)
 
     # Set MIME type to ensure PAPlayer is used
-    li.setMimeType(mime_type_for(api, suffix))
+    li.setMimeType(mime_type_for(suffix))
 
     # Set ContentLookup to False to help with buffering
     li.setContentLookup(False)
@@ -1262,11 +1256,10 @@ def download_track(api, cache, track, progress=None, heading=''):
     if cache.has(track_id):
         return True
 
-    suffix = api.transcode_format if api.enable_transcoding else (track.get('suffix') or 'mp3')
-
-    response = api.open_stream(track_id)
+    response, fmt = api.open_stream(track_id)
     if response is None:
         return False
+    suffix = fmt or track.get('suffix') or 'mp3'
 
     handle, path = cache.open_writer(track_id, suffix)
     if handle is None:
@@ -1464,7 +1457,7 @@ def play_track(track_id):
         if not api:
             xbmcplugin.setResolvedUrl(ADDON_HANDLE, False, xbmcgui.ListItem())
             return
-        path = api.get_stream_url(track_id)
+        path, suffix = api.get_stream(track_id)
 
     try:
         if ADDON.getSettingBool('enable_debug'):
@@ -1478,8 +1471,8 @@ def play_track(track_id):
         play_item.setContentLookup(False)
         # Only assert a MIME type when it is actually known — for an untranscoded
         # stream the container is whatever the server stored, so let Kodi sniff.
-        if suffix or (api is not None and api.enable_transcoding):
-            play_item.setMimeType(mime_type_for(api, suffix))
+        if suffix:
+            play_item.setMimeType(mime_type_for(suffix))
         play_item.setProperty('navidrome_id', track_id)
 
         xbmcplugin.setResolvedUrl(ADDON_HANDLE, True, play_item)

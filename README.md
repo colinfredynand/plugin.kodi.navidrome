@@ -66,14 +66,28 @@ After installation, you must configure the addon to connect to your Navidrome se
 5.  (Optional) Configure **Transcoding**:
     *   **Enable Transcoding**: Toggle on/off.
     *   **Max Bitrate**: Select your preferred quality (e.g., 320 kbps, 128 kbps).
-    *   **Format**: Choose the transcoding format (default: mp3).
-6.  (Optional) Configure **Offline**:
+        On Navidrome 0.64+ (mp3 and opus) only files above this bitrate are
+        transcoded; files already below it are sent as they are instead of
+        being re-encoded. Older servers, and aac, re-encode every file that
+        is not already in the chosen format.
+    *   **Format**: Choose the transcoding format (default: mp3). Kodi plays
+        all of them (mp3, opus, aac; checked on Kodi 21.3). The first time
+        a track is transcoded it cannot be seeked and the player shows no
+        total time, because the server does not know its size in advance;
+        once the server has it in its transcoding cache, both work.
+6.  (Optional) Configure **Scrobbling**:
+    *   **Enable Scrobbling** / **Scrobble After (%)**: when a play is counted.
+    *   **Update Now Playing**: show on the server what Kodi is playing.
+    *   **Playback report** (default: on): also send position, pause and stop,
+        using the OpenSubsonic `playbackReport` extension (Navidrome 0.62+).
+        Off, only the start of a track is announced, as on older servers.
+7.  (Optional) Configure **Offline**:
     *   **Enable Offline Cache** (default: on) adds the download context-menu
         entries and the **Offline** item on the main menu.
     *   **Offline Cache Size (MB)**: once the cache exceeds this, the least
         recently downloaded tracks are dropped.
     *   **Clear Offline Cache**: delete every downloaded track.
-7.  (Optional) Configure **Display**:
+8.  (Optional) Configure **Display**:
     *   **Items Per Page**: how many rows each page of a long list holds. Pages
         larger than 500 are assembled from several requests, because that is the
         most the server will return at once.

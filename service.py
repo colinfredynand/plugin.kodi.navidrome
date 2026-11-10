@@ -46,8 +46,11 @@ def track_id_from_path(path):
         return library_sync.song_id_from_library_path(urllib.parse.unquote(url.path))
 
     # Only our own stream URLs: they carry c=KodiNavidrome.
-    if '/rest/stream' in url.path and params.get('c') == [CLIENT_NAME]:
-        return (params.get('id') or [None])[0]
+    if params.get('c') == [CLIENT_NAME]:
+        if '/rest/stream' in url.path:
+            return (params.get('id') or [None])[0]
+        if '/rest/getTranscodeStream' in url.path:
+            return (params.get('mediaId') or [None])[0]
     return None
 
 
@@ -89,7 +92,8 @@ class NavidromePlayer(xbmc.Player):
     def _read_position(self):
         try:
             position = self.getTime()
-            self.duration = self.duration or self.getTotalTime()
+            self.duration = (self.duration or self.getTotalTime()
+                             or self.getMusicInfoTag().getDuration())
         except RuntimeError:
             return False
         if position + 2 < self.position:
@@ -137,7 +141,11 @@ class NavidromePlayer(xbmc.Player):
         self._report('playing')
 
     def onPlayBackSeek(self, time_ms, offset_ms):
+        paused = self.position_at is None
         self._read_position()
+        if paused:
+            self.position_at = None
+        self._report('paused' if paused else 'playing')
 
     # Core
     def poll(self):

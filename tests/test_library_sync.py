@@ -124,6 +124,8 @@ class LibrarySyncTest(unittest.TestCase):
         self.assertEqual(self.q("SELECT idAlbum FROM album"), [(70,)])
         self.assertEqual(self.q("SELECT idArtist FROM artist ORDER BY 1"), [(1,), (60,)])
         self.assertEqual(self.q("SELECT count(*) FROM art"), [(0,)])
+        self.assertEqual(self.q("SELECT strGenre FROM genre WHERE idGenre NOT IN "
+                                "(SELECT idGenre FROM song_genre)"), [])
         # dateModified aside, the user's own rows are byte-for-byte the same.
         self.assertEqual(local, [self.q(f"SELECT * FROM {t} WHERE {c}") for t, c in (
             ('song', 'idPath = 50'), ('album', 'idAlbum = 70'), ('artist', 'idArtist = 60'),

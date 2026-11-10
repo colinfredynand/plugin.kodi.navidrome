@@ -28,7 +28,13 @@
 - Fix: every track of a playlist is scrobbled, not only the first (#8)
 - Fix: offline downloads could not be saved at all
 - Fix: logged in again on every folder, which Navidrome 0.64 rate-limits
-- Fix: now-playing shows pause/stop; Similar Songs uses sonic similarity</news>
+- Fix: now-playing shows pause/stop; Similar Songs uses sonic similarity
+- New: setting to turn the playback report (position, pause, stop) off
+- New: with transcoding on, files already under the bitrate limit are no longer re-encoded (Navidrome 0.64)
+- Fix: with transcoding on, tracks shorter than 4 minutes were never scrobbled
+- Fix: multi-disc albums listed disc 1 and 2 interleaved
+- Fix: Kodi's home screen said the music library was empty after a sync, until a restart
+- Fix: removed Navidrome music left unused genres behind in Kodi's library</news>
         <assets>
             <icon>icon.png</icon>
         </assets>

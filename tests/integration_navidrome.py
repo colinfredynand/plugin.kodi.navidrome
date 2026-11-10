@@ -23,7 +23,7 @@ sys.modules['xbmcvfs'] = types.ModuleType('xbmcvfs')
 
 
 class Addon:
-    settings = {'api_timeout': '10'}
+    settings = {'api_timeout': '10', 'enable_playback_report': 'true'}
 
     def __init__(self, *a):
         pass
@@ -203,10 +203,30 @@ check('top songs degrade', a.get_top_songs(artists[0]['id'], artists[0]['name'])
 check('radios', a.get_internet_radios() == [])
 
 # Media
-stream = a.open_stream(track['id'])
-data = stream.read()
-stream.close()
-check('stream download', data[:4] == b'fLaC', f'{len(data)} bytes')
+def head(api_, song_id):
+    stream, fmt = api_.open_stream(song_id)
+    data = stream.read()
+    stream.close()
+    return data[:4], fmt
+
+
+magic, fmt = head(a, track['id'])
+check('stream download', magic == b'fLaC' and fmt is None)
+
+by_suffix = {s['suffix']: s['id'] for s in lib}
+big = max(lib, key=lambda s: s.get('bitRate') or 0)['id']
+Addon.settings.update(enable_transcoding='true', max_bitrate='192', transcode_format='opus')
+t = api()
+check('transcoding extension detected', t.has_extension('transcoding'))
+check('file above the bitrate limit is transcoded',
+      head(t, big) == (b'OggS', 'opus') and '/rest/getTranscodeStream' in t.get_stream(big)[0])
+check('file under the bitrate limit is sent as stored',
+      head(t, by_suffix['mp3'])[1] is None and '/rest/stream' in t.get_stream(by_suffix['mp3'])[0])
+t.os_extensions.discard('transcoding')
+check('plain endpoint without the extension', head(t, big) == (b'OggS', 'opus'))
+Addon.settings['transcode_format'] = 'aac'
+check('aac goes through the plain endpoint', head(api(), big)[1] == 'aac')
+Addon.settings['enable_transcoding'] = 'false'
 cover = a.get_cover_art_url(album.get('coverArt') or album['id'])
 with urllib.request.urlopen(cover.split('|')[0]) as r:
     check('cover art url', r.status == 200 and r.headers['Content-Type'].startswith('image/'),

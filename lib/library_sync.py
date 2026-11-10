@@ -302,6 +302,7 @@ def write_library(db_path, songs, api):
             'DELETE FROM artist WHERE idArtist > 1 '
             'AND idArtist NOT IN (SELECT idArtist FROM song_artist) '
             'AND idArtist NOT IN (SELECT idArtist FROM album_artist)')
+        db.execute('DELETE FROM genre WHERE idGenre NOT IN (SELECT idGenre FROM song_genre)')
         db.commit()
         return {'songs': len(seen), 'albums': len(by_album), 'removed': len(removed)}
     except BaseException:
@@ -309,6 +310,11 @@ def write_library(db_path, songs, api):
         raise
     finally:
         db.close()
+
+
+def _refresh_kodi():
+    if not xbmc.getCondVisibility('Library.IsScanningMusic'):
+        xbmc.executebuiltin(f'UpdateLibrary(music,{PLUGIN_PATH})')
 
 
 def sync(api, progress=None):
@@ -321,9 +327,12 @@ def sync(api, progress=None):
         raise SyncError('Could not download the song list')
     result = write_library(find_music_db(), songs, api)
     xbmc.log(f"NAVIDROME SYNC: {result}", xbmc.LOGINFO)
+    _refresh_kodi()
     return result
 
 
 def remove():
     """Take everything this addon added back out of Kodi's library."""
-    return write_library(find_music_db(), [], None)
+    result = write_library(find_music_db(), [], None)
+    _refresh_kodi()
+    return result
